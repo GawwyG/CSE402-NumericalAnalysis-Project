@@ -21,6 +21,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from experiments.exp01_4bus import build_4bus_system
+from experiments.member_b_utils import summarise_nr_history
 from src.powerflow.newton import newton_raphson
 
 
@@ -51,23 +52,17 @@ def run_4bus_case(*, label: str, load_on_secondary: bool, method: str) -> dict:
     return result
 
 
-def _linear_solve_entries(result: dict) -> list[dict]:
-    """Return only history entries that reached a linear-solver invocation."""
-    return [entry for entry in result["history"] if "solver_diagnostics" in entry]
-
-
 def print_run(label: str, result: dict) -> None:
     """Print convergence, final state, and method-specific SVD diagnostics."""
-    history = result["history"]
-    solves = _linear_solve_entries(result)
-    final_mismatch = history[-1]["F_inf_norm"] if history else float("nan")
+    summary = summarise_nr_history(result)
+    solves = summary["linear_solves"]
     print("=" * 78)
     print(label)
     print("=" * 78)
     print(f"Converged                 : {result['converged']}")
-    print(f"History entries            : {len(history)}")
+    print(f"History entries            : {summary['history_entries']}")
     print(f"Actual linear solves       : {len(solves)}")
-    print(f"Final ||F||_inf            : {final_mismatch:.6e}")
+    print(f"Final ||F||_inf            : {summary['final_F_inf']:.6e}")
     if not result["converged"]:
         print(f"Failure reason             : {result['fail_reason']}")
 

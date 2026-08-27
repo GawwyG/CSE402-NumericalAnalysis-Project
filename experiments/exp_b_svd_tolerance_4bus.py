@@ -23,6 +23,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from experiments.exp01_4bus import build_4bus_system
+from experiments.member_b_utils import summarise_nr_history
 from src.powerflow.newton import newton_raphson
 
 
@@ -41,11 +42,6 @@ RTOL_GRID: tuple[tuple[str, float | None], ...] = (
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = ROOT / "results"
 FIGURES_DIR = ROOT / "figures"
-
-
-def _solver_entries(result: dict) -> list[dict]:
-    """Return NR history entries that invoked the SVD linear solver."""
-    return [entry for entry in result["history"] if "solver_diagnostics" in entry]
 
 
 def run_case(*, load_on_secondary: bool, rtol: float | None) -> dict:
@@ -74,11 +70,11 @@ def run_case(*, load_on_secondary: bool, rtol: float | None) -> dict:
 
 def summarise_run(case: str, label: str, requested_rtol: float | None, result: dict) -> tuple[dict, list[dict]]:
     """Flatten one NR result into threshold and per-solve diagnostic records."""
-    solves = _solver_entries(result)
+    nr_summary = summarise_nr_history(result)
+    solves = nr_summary["linear_solves"]
     last = solves[-1]["solver_diagnostics"] if solves else {}
     voltages = result["state"].unpack(result["x"])
     voltage_magnitudes = [abs(value) for value in voltages.values()]
-    history = result["history"]
     summary = {
         "case": case,
         "rtol_label": label,
@@ -86,11 +82,9 @@ def summarise_run(case: str, label: str, requested_rtol: float | None, result: d
         "actual_rtol": last.get("rtol", np.nan),
         "converged": result["converged"],
         "fail_reason": result["fail_reason"] or "",
-        "history_entries": len(history),
-        "successful_linear_updates": sum(
-            entry["solver_diagnostics"].get("success", False) for entry in solves
-        ),
-        "final_F_inf": history[-1]["F_inf_norm"] if history else np.nan,
+        "history_entries": nr_summary["history_entries"],
+        "successful_linear_updates": nr_summary["successful_linear_updates"],
+        "final_F_inf": nr_summary["final_F_inf"],
         "last_numerical_rank": last.get("numerical_rank", np.nan),
         "last_truncated_singular_values": last.get("truncated_singular_values", np.nan),
         "last_sigma_max": last.get("sigma_max", np.nan),
