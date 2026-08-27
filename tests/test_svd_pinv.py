@@ -53,6 +53,20 @@ def test_rtol_controls_rank_for_known_singular_value_spectrum():
     assert coarse_cutoff["truncated_singular_values"] == 2
 
 
+def test_retained_rank_is_monotone_nonincreasing_with_rtol():
+    """For a fixed spectrum, increasing the cutoff cannot restore a truncated mode."""
+    J = np.diag([1.0, 1e-5, 1e-9])
+    rhs = np.ones(3)
+
+    ranks = [
+        solve_svd_pinv(J, rhs, rtol=rtol)[1]["numerical_rank"]
+        for rtol in (1e-12, 1e-7, 1e-3)
+    ]
+
+    assert ranks == [3, 2, 1]
+    assert ranks == sorted(ranks, reverse=True)
+
+
 def test_underdetermined_solution_is_minimum_norm_pseudoinverse_solution():
     """For infinitely many exact solutions, MP-PI selects the trusted minimum-norm one."""
     J = np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]])
