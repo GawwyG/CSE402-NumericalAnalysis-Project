@@ -9,3 +9,4 @@ results/*.csv
 figures/*.png
 .DS_Store
 verified_output.md
+random/
