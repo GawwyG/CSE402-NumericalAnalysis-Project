@@ -1,0 +1,10 @@
+datasets:
+  ieee4:
+    name: "IEEE 4-Bus Test Feeder"
+    description: "Standard IEEE 4-bus step-down transformer test case for power flow validation."
+    source_url: "https://raw.githubusercontent.com/tshort/OpenDSS/master/Distrib/IEEETestCases/4Bus-DY-Bal/4Bus-DY-Bal.DSS"
+    retrieved_at: "2026-08-29"
+    local_path: "data/raw/ieee4/Master.dss"
+    format: "OpenDSS (.dss)"
+    modifications: "Renamed source file to Master.dss for standardized entry-point naming across solver pipelines."
+    version: "Official EPRI Distribution Test Case"
