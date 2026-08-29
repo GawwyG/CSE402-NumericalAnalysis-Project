@@ -1,0 +1,6 @@
+﻿# requirements.txt (freeze after your env works)
+numpy>=1.24
+opendssdirect.py>=0.9
+pandas>=2.0
+pyyaml>=6.0
+pandapower>=2.14   # for IEEE-118 scaling (Week 5)

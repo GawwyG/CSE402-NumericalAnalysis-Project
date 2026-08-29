@@ -1,0 +1,47 @@
+# data/provenance.yml
+feeders:
+  ieee4_reconstruction:
+    description: >
+      Not an official IEEE test-feeder download. Reconstructs the
+      4-bus topology defined in src team member A's
+      experiments/exp01_4bus.py, replicated in OpenDSS for
+      independent validation.
+    source_of_truth: experiments/exp01_4bus.py (commit 5b52241, 2105117 stage03)
+    paper_specified_parameters:
+      - transformer: "Yg-Delta, 6 MVA, 12.47/4.16 kV, R=0.01 pu, X=0.06 pu"
+        source: "handoff.md section 14, base paper (Jang, Kim & Kim, IEEE Access 2023, doi 10.1109/ACCESS.2023.3269503)"
+    reconstruction_assumptions:
+      - topology: "BUS1(slack)-line-BUS2-[xfmr]-BUS3-line-BUS4"
+        owner: "Member A (exp01_4bus.py)"
+      - line_impedances_pu: {line1: "0.01+j0.03", line2: "0.02+j0.02"}
+        owner: "Member A, not paper-specified"
+      - load_values_pu:
+          BUS2: {P: 0.05, Q: 0.02}
+          BUS3_caseA: {P: 0.10, Q: 0.04}
+          BUS4_caseA: {P: 0.15, Q: 0.06}
+        owner: "Member A, not paper-specified"
+      - system_mva_base: 6.0
+        note: >
+          NOT explicitly stated anywhere in handoff.md or Member A's code
+          (their Ybus is unitless/per-unit with no declared base). Chosen
+          here as the transformer's own nameplate rating for the OpenDSS
+          conversion. CONFIRM WITH MEMBER A before trusting cross-validation
+          results — a wrong base here invalidates the comparison silently.
+      - load_pu_convention: "per-phase (applied identically to each of a,b,c)"
+        note: "Inferred from code structure — CONFIRM WITH MEMBER A."
+    retrieved_by: "Member E"
+    retrieved_date: "2026-08-29"
+    modifications: "None beyond OpenDSS syntax translation of Member A's parameters."
+    reproducibility: "Deterministic — no randomness in circuit definition."
+
+  ieee37:
+    description: "TBD — Week 3 task"
+    source: "IEEE PES Distribution Test Feeder Working Group (pending)"
+    retrieved_by: "Member E"
+    retrieved_date: null
+
+  ieee118:
+    description: "Balanced computational scaling benchmark only, via pandapower.networks.case118()"
+    source: "pandapower (MATPOWER-derived case118)"
+    retrieved_by: "Member E"
+    retrieved_date: null
