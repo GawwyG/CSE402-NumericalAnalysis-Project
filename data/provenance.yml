@@ -188,6 +188,22 @@ feeders:
       median line-to-line relative error 2.3%, max 6.5% -- substantially
       tighter than IEEE-13's 6.6%/26.5%, consistent with this feeder's
       null-space ambiguity mattering less to the overall solution.
+    quasi_radial_variant: >
+      Stretch goal (handoff.md section 18), generated programmatically by
+      build_37bus_system(quasi_radial=True) rather than a separate data
+      module, per that section's instruction. Adds three lines (718-733,
+      729-742, 736-741) with diagonal (zero-mutual-coupling) phase
+      impedance 0.01+j0.001 ohm/km, matching the paper's stated equal
+      zero/positive/negative-sequence impedance. The paper does not specify
+      these three lines' lengths; this reconstruction uses 0.15 km (~492
+      ft, an explicitly documented, non-paper-specified choice
+      approximating this feeder's median existing line length -- see
+      QUASI_RADIAL_ASSUMED_LENGTH_KM in exp03_37bus.py). Jacobian
+      FD-validated (E_J~4.6e-11); same 4 near-zero singular values as the
+      radial case (same floating transformers), higher raw kappa_2
+      (6.8e18 vs 1.2e18) from the added current paths; SVD still converges
+      cleanly. NOT cross-validated against OpenDSS (no reference .dss
+      variant built for this stretch-goal case).
 
   ieee118:
     description: "Balanced computational scaling benchmark only, via pandapower.networks.case118()"

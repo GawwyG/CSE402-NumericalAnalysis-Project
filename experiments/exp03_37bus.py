@@ -133,7 +133,37 @@ def _accumulate_loads() -> dict[tuple[str, str], tuple[float, float]]:
     return {key: (p, q) for key, (p, q) in totals.items()}
 
 
-def build_37bus_system(load_scale: float = 1.0, *, xfm1_xhl_percent: float = XFM1_XHL_PERCENT_OFFICIAL):
+# Quasi-radial variant (handoff.md section 18, stretch goal): the paper
+# adds three lines to the radial IEEE-37 base case, connecting 718-733,
+# 729-742, and 736-741, each with "both zero-sequence and positive/
+# negative-sequence impedance approximately 0.01+j0.001 ohm/km". Because
+# all three sequence impedances are equal, the phase-domain line is exactly
+# diagonal (self impedance = Z1 = Z0, zero mutual coupling: for a
+# perfectly symmetric line, phase self impedance = (Z0+2*Z1)/3 and mutual
+# = (Z0-Z1)/3, both of which collapse to this simple form when Z0=Z1).
+# The paper does NOT specify these three lines' lengths (handoff.md section
+# 18 gives only the per-km impedance) -- QUASI_RADIAL_ASSUMED_LENGTH_KM is
+# this reconstruction's own documented choice, not paper data: it uses
+# 0.15 km (~492 ft), the approximate median length of this feeder's
+# existing lines (converting OFFICIAL_LINES' 1000-ft-unit lengths to km via
+# 1 length-unit = 1000 ft = 0.3048 km), as a physically reasonable
+# "short cross-tie" connection given no better information exists.
+QUASI_RADIAL_Z_OHM_PER_KM = complex(0.01, 0.001)
+QUASI_RADIAL_ASSUMED_LENGTH_KM = 0.15
+QUASI_RADIAL_EXTRA_CONNECTIONS: tuple[tuple[str, str], ...] = (
+    ("718", "733"),
+    ("729", "742"),
+    ("736", "741"),
+)
+
+
+def build_37bus_system(
+    load_scale: float = 1.0,
+    *,
+    xfm1_xhl_percent: float = XFM1_XHL_PERCENT_OFFICIAL,
+    quasi_radial: bool = False,
+    quasi_radial_length_km: float = QUASI_RADIAL_ASSUMED_LENGTH_KM,
+):
     """Build the IEEE-37 reconstruction per this module's docstring.
 
     Parameters
@@ -144,6 +174,15 @@ def build_37bus_system(load_scale: float = 1.0, *, xfm1_xhl_percent: float = XFM
         XFM1's H-L reactance in percent (see assumption B). Defaults to the
         official sourced value (1.81); pass 0.181 for the paper-literal
         alternate reading.
+    quasi_radial : bool
+        If True, add the three extra lines forming the paper's quasi-radial
+        variant (handoff.md section 18) on top of the radial base case --
+        generated programmatically from this same function rather than
+        maintained as a separate data module, per that section's explicit
+        instruction. See QUASI_RADIAL_* module constants above for the
+        (documented, non-paper-specified) length assumption.
+    quasi_radial_length_km : float
+        Length used for all three added lines when ``quasi_radial=True``.
 
     Returns
     -------
@@ -184,6 +223,13 @@ def build_37bus_system(load_scale: float = 1.0, *, xfm1_xhl_percent: float = XFM
         z_pu = z_ohm / Z_BASE_4_8
         y_prim = np.linalg.inv(z_pu)
         stamp_line_series_admittance(ybus_dict, line["bus1"], line["bus2"], y_prim)
+
+    if quasi_radial:
+        z_ohm_extra = QUASI_RADIAL_Z_OHM_PER_KM * quasi_radial_length_km
+        z_pu_extra = z_ohm_extra / Z_BASE_4_8
+        y_prim_extra = (1.0 / z_pu_extra) * np.eye(3)  # diagonal: see module constants' docstring.
+        for bus1, bus2 in QUASI_RADIAL_EXTRA_CONNECTIONS:
+            stamp_line_series_admittance(ybus_dict, bus1, bus2, y_prim_extra)
 
     # SubXF: Delta(SourceBus)-Delta(799), official R/X, no extra ground path.
     stamp_transformer(

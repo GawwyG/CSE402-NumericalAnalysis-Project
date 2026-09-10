@@ -134,3 +134,50 @@ def test_line_to_line_voltage_is_better_conditioned_than_phase_voltage():
     line_line_spread = max(line_line_mags) - min(line_line_mags)
 
     assert line_line_spread < 0.5 * phase_spread
+
+
+def test_jacobian_37bus_quasiradial_matches_finite_difference():
+    """Mandatory FD validation for the quasi-radial variant (handoff.md section 18)."""
+    state, Ybus = build_37bus_system(quasi_radial=True)
+    x0 = state.init_flat_start(v_mag=1.0)
+    rng = np.random.default_rng(1837)
+    x_test = x0 + 0.01 * rng.standard_normal(x0.size)
+
+    J_analytic = compute_jacobian(x_test, state, Ybus)
+    J_fd = finite_difference_jacobian(x_test, state, Ybus, h=1e-6)
+    E_J = compute_relative_frobenius_error(J_analytic, J_fd)
+
+    assert E_J < E_J_TOLERANCE
+
+
+def test_quasiradial_adds_no_new_buses_but_changes_conditioning():
+    """The three extra lines close loops among existing buses (handoff.md section 18).
+
+    Generated programmatically from the same build function (that section's
+    explicit instruction), so unknown count is identical to the radial
+    case; only the Jacobian's conditioning should change.
+    """
+    state_radial, Ybus_radial = build_37bus_system()
+    state_quasi, Ybus_quasi = build_37bus_system(quasi_radial=True)
+
+    assert state_quasi.n_unknowns == state_radial.n_unknowns
+
+    x0 = state_radial.init_flat_start(v_mag=1.0)
+    sv_radial = np.linalg.svd(compute_jacobian(x0, state_radial, Ybus_radial), compute_uv=False)
+    sv_quasi = np.linalg.svd(compute_jacobian(x0, state_quasi, Ybus_quasi), compute_uv=False)
+
+    # Both are floating the same way (same transformers, same connections),
+    # so both must still be singular by construction...
+    assert sv_radial[-1] < 1e-6 * sv_radial[0]
+    assert sv_quasi[-1] < 1e-6 * sv_quasi[0]
+    # ...but adding three loop-closing lines changes sigma_max (more paths
+    # for current to flow) and therefore the raw conditioning number.
+    assert sv_quasi[0] != sv_radial[0]
+
+
+def test_quasiradial_svd_converges_at_nominal_load():
+    """The quasi-radial variant should remain solvable by the rank-revealing solvers."""
+    state, Ybus = build_37bus_system(quasi_radial=True)
+    x0 = state.init_flat_start(v_mag=1.0)
+    result = newton_raphson(state, Ybus, x0, method="svd", tol_F=1e-9, max_iter=80, compute_conditioning=False)
+    assert result["converged"] is True
