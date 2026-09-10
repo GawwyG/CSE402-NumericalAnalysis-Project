@@ -71,6 +71,8 @@ experiments/
   exp_d_ieee13_investigation.py        IEEE-13 anomaly investigation (see below)
   exp03_37bus.py                       IEEE 37-bus reconstruction + 4-solver comparison
   exp03b_37bus_opendss_crosscheck.py   IEEE 37-bus independent OpenDSS validation
+  exp04_69bus.py                       IEEE 69-bus reconstruction + 4-solver comparison
+  exp_e_ieee118_scaling.py             IEEE 118-bus linear-solver runtime scaling
 
 data/
   provenance.yml    Source and every reconstruction assumption for each feeder
@@ -95,11 +97,12 @@ complete.
 | IEEE 13-bus | ✅ | ✅ | ✅ | ✅ (median 6.6%, max 26.5% line-to-line error — see below) |
 | IEEE 37-bus (radial + quasi-radial) | ✅ | ✅ | ✅ | ✅ radial (median 2.3%, max 6.5%); quasi-radial not yet cross-validated |
 | IEEE 118-bus | ✅ (linear-solver scaling only, per `handoff.md` §20 — not a power-flow/singularity case) | — | — | n/a |
-| IEEE 69-bus | ❌ | — | — | — |
+| IEEE 69-bus | ✅ | ✅ | ✅ | ❌ not built for this lowest-priority stretch case |
 
-**Not done**: IEEE-69 reconstruction (the one remaining stretch goal from
-`handoff.md` section 31; lowest priority there, and does not block the
-core numerical comparison or the IEEE-13 investigation).
+All items in `handoff.md` section 31's stretch-goal list are now done.
+Nothing from the project's planned scope remains unattempted; see
+`data/provenance.yml` for each feeder's open, explicitly-documented
+discrepancies (never silently resolved).
 
 ### Headline findings
 
@@ -127,6 +130,17 @@ core numerical comparison or the IEEE-13 investigation).
   a concrete demonstration that no single solver or fixed regularization
   strength is uniformly best across feeders (motivating the project's
   whole comparative-methods premise).
+- **IEEE 69-bus**: unlike IEEE-13/37, the direct solver actually
+  *converges* here (`κ≈2.3e5` at flat start, growing to `~6.5e9` during
+  iteration — severe, but under the guard threshold). Ybus itself still has
+  an exact null direction across each floating transformer's downstream
+  region (confirmed numerically), but the nonlinear Jacobian's degeneracy
+  there is proportional to the real current already flowing — since this
+  region carries most of the feeder's load, it's severely ill-conditioned
+  rather than exactly singular. A genuine structural finding, not a
+  reconstruction defect: not every floating-Delta topology produces exact
+  flat-start singularity. See
+  [`tests/test_ieee69.py`](tests/test_ieee69.py) for the full derivation.
 - **IEEE 118-bus** (linear-solver scaling only, not a singularity case —
   `handoff.md` section 20): benchmarked on the real pandapower `case118`
   admittance matrix, block-replicated up to 8× (~1900×1900 real Jacobian

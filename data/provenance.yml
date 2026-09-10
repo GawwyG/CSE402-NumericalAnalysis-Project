@@ -205,8 +205,88 @@ feeders:
       cleanly. NOT cross-validated against OpenDSS (no reference .dss
       variant built for this stretch-goal case).
 
+  ieee69_reconstruction:
+    description: >
+      Modified IEEE/PG&E 69-bus feeder (handoff.md section 19), lowest
+      priority of the four feeders and explicitly a reconstruction, not an
+      exact paper reproduction. Built on the official MATPOWER case69.m
+      data (a balanced, single-phase-equivalent representation with no
+      native phase-domain structure), treated as a balanced three-phase
+      feeder (every branch diagonal/zero-mutual-coupling, every load split
+      identically across phases), with three Yg-Delta transformers
+      REPLACING three specific existing branches per the paper's table.
+    source_of_truth: >
+      src/model/ieee69_data.py (official data, verbatim transcription) +
+      experiments/exp04_69bus.py (reconstruction decisions, documented in
+      that module's docstring)
+    official_data_source:
+      url: "https://raw.githubusercontent.com/MATPOWER/matpower/master/data/case69.m"
+      retrieved_date: "2026-09-10"
+      retrieved_by: "assistant session (fetched per handoff.md section 13/19's cited source)"
+      note: >
+        Original data: a portion of the PG&E distribution system, per
+        Baran & Wu (1989). Transcription independently confirmed by
+        totaling all 69 buses' load: 3.8021 MW / 2.6947 MVAr across
+        exactly 48 nonzero-load buses, matching handoff.md section 19's
+        "48 loads" and published case69 totals -- not something tuned to
+        match, a genuine cross-check.
+    paper_specified_parameters:
+      - transformers: >
+          Yg-Delta at 3-4 (10 MVA, 13.8 kV, R=0.0007 pu, X=0.0018 pu),
+          3-28 (10 MVA, 13.8 kV, R=0.0023 pu, X=0.0056 pu), 3-36 (10 MVA,
+          13.8 kV, R=0.0023 pu, X=0.0056 pu)
+        source: "handoff.md section 19 (Jang, Kim & Kim, IEEE Access 2023)"
+    reconstruction_assumptions:
+      - replace_not_add: >
+          The official case69 topology already has plain lines at exactly
+          3-4, 3-28, 3-36. This reconstruction reads the paper's "adding
+          three Yg-Delta transformers AT" these locations as REPLACING
+          those three branches, not adding new parallel ones -- the
+          paper's own wording does not unambiguously say either way.
+        owner: "this reconstruction; see exp04_69bus.py assumption A"
+      - voltage_base_discrepancy: >
+          The paper's transformer table gives 13.8 kV, but case69's actual
+          bus voltage base is 12.66 kV. This reconstruction uses 12.66 kV
+          throughout (the network's real operating voltage) and applies
+          the paper's R/X directly on the transformers' own 10 MVA rating.
+          FLAGGED, not resolved -- an apparent inconsistency in the
+          paper's own published data, similar in spirit to the IEEE-37
+          XFM1 reactance discrepancy (handoff.md section 17).
+        owner: "flagged in this reconstruction; not resolved"
+      - balanced_only: >
+          No 30%-unbalanced variant is built. handoff.md section 19 itself
+          states the paper's phase-specific imbalance construction rule
+          for this feeder is not documented anywhere available to this
+          project -- an explicitly acknowledged gap, not a silent omission.
+        owner: "documented gap per handoff.md section 19"
+      - system_base: "S_BASE_MVA=10.0 (matches both case69's own baseMVA and the added transformers' rating)"
+        owner: "this reconstruction; standard convention"
+    retrieved_by: "assistant session"
+    retrieved_date: "2026-09-10"
+    modifications: "Three branches (3-4, 3-28, 3-36) replaced by Yg-Delta transformers; see paper_specified_parameters and reconstruction_assumptions above."
+    reproducibility: "Deterministic — no randomness in circuit definition."
+    validation_status: >
+      Jacobian finite-difference validated (E_J~7.0e-11,
+      tests/test_ieee69.py). UNLIKE IEEE-13/37, the direct solver
+      CONVERGES here (kappa_2~2.3e5 at flat start, growing to ~6.5e9
+      during iteration -- severe but staying under the 1e12 guard). SVD
+      and RRQR also converge and agree with direct to ~1e-8. Ybus itself
+      does have an exact null direction across each transformer's floating
+      downstream region (verified numerically: a uniform complex voltage
+      shift across the 47-bus region behind the 3-4 transformer leaves
+      every current unchanged, residual ~1e-13), but the actual nonlinear
+      Jacobian's degeneracy along that direction is proportional to the
+      real current already flowing there (substantial, since this region
+      carries most of the feeder's load) -- so it is severely
+      ill-conditioned but not exactly singular, a genuine structural
+      difference from IEEE-13/37 rather than a reconstruction defect (see
+      tests/test_ieee69.py's docstrings for the fuller derivation). NOT
+      cross-validated against OpenDSS (no reference .dss/case69 solver
+      comparison built for this lowest-priority stretch-goal case).
+
   ieee118:
     description: "Balanced computational scaling benchmark only, via pandapower.networks.case118()"
     source: "pandapower (MATPOWER-derived case118)"
-    retrieved_by: "Member E"
-    retrieved_date: null
+    retrieved_by: "assistant session"
+    retrieved_date: "2026-09-10"
+    note: "Used only for linear-solver runtime scaling (experiments/exp_e_ieee118_scaling.py) per handoff.md section 20 -- explicitly not evidence about the transformer-connection singularity this project otherwise studies."
