@@ -95,7 +95,7 @@ def solve_python() -> dict[tuple[str, str], complex]:
     return state.unpack(result["x"])
 
 
-def compare() -> None:
+def compare() -> tuple[float, float]:
     V_dss = solve_opendss()
     V_py = solve_python()
 
@@ -123,6 +123,7 @@ def compare() -> None:
         "there), not evidence of a remaining bug -- as long as the MEDIAN error "
         "is small, the well-determined part of the network is validated."
     )
+    return float(np.median(rel_errs)), max_rel_err
 
 
 if __name__ == "__main__":

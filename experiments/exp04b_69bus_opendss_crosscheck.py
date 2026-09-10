@@ -86,7 +86,7 @@ def solve_python() -> dict[tuple[str, str], complex]:
     return state.unpack(result["x"])
 
 
-def compare() -> None:
+def compare() -> tuple[float, float]:
     V_dss = solve_opendss()
     V_py = solve_python()
 
@@ -107,6 +107,7 @@ def compare() -> None:
     print()
     print(f"Median relative line-to-line error: {float(np.median(rel_errs)):.3e}")
     print(f"Max relative line-to-line error:    {max_rel_err:.3e}")
+    return float(np.median(rel_errs)), max_rel_err
 
 
 if __name__ == "__main__":
