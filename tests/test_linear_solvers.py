@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.solvers.direct import COND_NUMBER_FAIL_THRESHOLD, solve_direct
+from src.solvers.rrqr import solve_rrqr
 from src.solvers.svd_pinv import solve_svd_pinv
 
 
@@ -111,3 +112,77 @@ def test_controlled_spectrum_rank_and_diagnostics_are_finite():
     np.testing.assert_allclose(
         diagnostics["singular_values"][:4], expected_singular_values[:4], rtol=1e-12, atol=1e-15
     )
+
+
+def test_well_conditioned_full_rank_direct_svd_and_rrqr_agree():
+    """Unique well-conditioned systems must agree across all three available APIs."""
+    J = np.array([[4.0, 1.0, 0.0], [1.0, 3.0, 1.0], [0.0, 1.0, 2.0]])
+    rhs = np.array([2.0, -1.0, 3.0])
+
+    direct_dx, direct = solve_direct(J, rhs)
+    svd_dx, svd = solve_svd_pinv(J, rhs)
+    rrqr_dx, rrqr = solve_rrqr(J, rhs)
+
+    assert direct["success"] is True
+    assert svd["success"] is True
+    assert rrqr["success"] is True
+    assert np.isfinite(rrqr["runtime_sec"])
+    assert np.isfinite(rrqr["residual_norm"])
+    np.testing.assert_allclose(rrqr_dx, direct_dx, rtol=1e-11, atol=1e-11)
+    np.testing.assert_allclose(rrqr_dx, svd_dx, rtol=1e-11, atol=1e-11)
+
+
+def test_ill_conditioned_but_full_rank_system_rrqr_agrees_with_direct_and_svd():
+    """Conditioning near 1e10 is finite and below the direct guard, so all three solve."""
+    J = np.diag([1.0, 1e-5, 1e-10])
+    rhs = np.array([1.0, -2e-5, 3e-10])
+
+    direct_dx, direct = solve_direct(J, rhs)
+    svd_dx, svd = solve_svd_pinv(J, rhs)
+    rrqr_dx, rrqr = solve_rrqr(J, rhs)
+
+    assert direct["success"] is True
+    assert svd["success"] is True
+    assert rrqr["success"] is True
+    assert rrqr["numerical_rank"] == 3
+    np.testing.assert_allclose(rrqr_dx, direct_dx, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(rrqr_dx, svd_dx, rtol=1e-9, atol=1e-9)
+
+
+def test_exact_rank_deficiency_is_rrqr_success_but_direct_exact_singular_failure():
+    """RRQR intentionally handles a null mode; direct solve reports its own failure mode."""
+    J = np.diag([1.0, 1e-2, 1e-6, 1e-12, 0.0])
+    rhs = np.array([1.0, -1e-2, 2e-6, -3e-12, 0.5])
+
+    direct_dx, direct = solve_direct(J, rhs)
+    svd_dx, svd = solve_svd_pinv(J, rhs)
+    rrqr_dx, rrqr = solve_rrqr(J, rhs)
+
+    assert direct_dx is None
+    assert direct["success"] is False
+    assert direct["failure_mode"] == "exact_singular"
+    assert rrqr["success"] is True
+    assert rrqr["numerical_rank"] == svd["numerical_rank"] == 4
+    assert rrqr["truncated_columns"] == svd["truncated_singular_values"] == 1
+    np.testing.assert_allclose(rrqr_dx, svd_dx, rtol=1e-9, atol=1e-9)
+
+
+def test_controlled_spectrum_rrqr_rank_matches_svd_rank():
+    """RRQR and SVD must agree on numerical rank for a known non-diagonal spectrum."""
+    J, expected_singular_values = controlled_spectrum_matrix()
+    rhs = np.array([1.0, -2.0, 3.0, -4.0, 5.0])
+
+    svd_dx, svd = solve_svd_pinv(J, rhs)
+    rrqr_dx, rrqr = solve_rrqr(J, rhs)
+
+    assert rrqr["success"] is True
+    assert rrqr["numerical_rank"] == svd["numerical_rank"] == 4
+    assert rrqr["truncated_columns"] == svd["truncated_singular_values"] == 1
+    assert np.all(np.isfinite(rrqr_dx))
+    assert np.isfinite(rrqr["runtime_sec"])
+    # Both are valid least-squares solutions of a rank-deficient system, so
+    # they need not be numerically identical -- only equally consistent with
+    # the same known spectrum. Column pivoting picks the largest-norm
+    # remaining column at each step, so |R_00| is only bounded above by
+    # sigma_max (interlacing), not equal to it in general.
+    assert 0.0 < rrqr["r_diagonal"][0] <= expected_singular_values[0] + 1e-10
