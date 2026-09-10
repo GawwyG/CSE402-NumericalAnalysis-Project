@@ -34,6 +34,77 @@ feeders:
     modifications: "None beyond OpenDSS syntax translation of Member A's parameters."
     reproducibility: "Deterministic — no randomness in circuit definition."
 
+  ieee13_reconstruction:
+    description: >
+      Official IEEE 13-node test feeder (OpenDSS implementation), with
+      Jang, Kim & Kim (2023)'s modifications applied per handoff.md
+      section 15, built directly on top of the official feeder's own
+      line/load/topology data rather than re-derived from scratch.
+    source_of_truth: >
+      src/model/ieee13_data.py (official data, verbatim transcription) +
+      experiments/exp02_13bus.py (paper modifications + reconstruction
+      assumptions, all documented in that module's docstring)
+    official_data_source:
+      url: "https://sourceforge.net/p/electricdss/code/HEAD/tree/trunk/Version8/Distrib/IEEETestCases/13Bus/IEEE13Nodeckt.dss"
+      retrieved_date: "2026-09-10"
+      retrieved_by: "assistant session (fetched per handoff.md section 13's cited source)"
+      note: "Cited directly in handoff.md section 13 as the project's canonical IEEE-13 source."
+    paper_specified_parameters:
+      - transformer_T1: "Yg-Delta, 5 MVA, 115/4.16 kV, R=0.08 pu, X=0.10 pu"
+        source: "handoff.md section 15 (Jang, Kim & Kim, IEEE Access 2023)"
+      - transformer_T2: "Delta-Delta, 0.5 MVA, 4.16/0.48 kV, R=0.02 pu, X=0.011 pu (own base)"
+        source: "handoff.md section 15"
+      - distributed_load_removed: true
+      - capacitor_banks_removed: true
+    reconstruction_assumptions:
+      - system_base: "S_BASE_MVA=5.0 (matches T1's own rating exactly); zone kV bases 115/4.16/0.48 match each transformer's nominal rating"
+        owner: "this reconstruction; not paper-specified but a standard, low-risk per-unit convention"
+      - seven_loads_discrepancy: >
+          handoff.md states the paper's modified case has seven loads.
+          After removing the official file's own distributed-load
+          stand-in (Load.670a/b/c -- its own inline comment identifies
+          it as exactly that), EIGHT distinct load locations remain
+          (671, 634, 645, 646, 692, 675, 611, 652). The paper does not
+          specify which additional location to drop to reach seven, and
+          nothing in handoff.md singles one out, so this reconstruction
+          keeps all eight rather than arbitrarily deleting one. OPEN
+          DISCREPANCY -- see exp02_13bus.py module docstring assumption A.
+        owner: "this reconstruction; documented gap, not resolved"
+      - delta_load_approximation: >
+          Delta-connected loads (official Load.671, Load.646, Load.692)
+          are approximated as an even wye-equivalent per-phase split,
+          because src/powerflow/mismatch.py only supports phase-to-
+          neutral constant-PQ injections, not true delta-branch current
+          stamping.
+        owner: "this reconstruction; see exp02_13bus.py assumption B"
+      - constant_pq_load_model: "All loads treated as OpenDSS Model=1 (constant P,Q) regardless of official per-load model number"
+        owner: "this reconstruction; see exp02_13bus.py assumption C"
+      - regulators_and_switch_merged: >
+          Voltage regulators Reg1/2/3 and the closed 671-692
+          sectionalizing switch are modeled as ideal (zero-impedance)
+          merges (RG60 -> 650, 692 -> 671) rather than stamped as
+          near-zero-impedance branches or discrete tap-control loops.
+        owner: "this reconstruction; see exp02_13bus.py assumption D"
+      - line_shunt_capacitance_omitted: true
+        owner: "this reconstruction; see exp02_13bus.py assumption E"
+    retrieved_by: "assistant session"
+    retrieved_date: "2026-09-10"
+    modifications: "Paper modifications applied on top of official data; see paper_specified_parameters and reconstruction_assumptions above."
+    reproducibility: "Deterministic — no randomness in circuit definition."
+    validation_status: >
+      Jacobian finite-difference validated (E_J ~ 8.6e-11, tests/test_ieee13.py).
+      Direct solver fails (kappa_2 ~ 4.5e18 at flat start) as expected: both
+      T1 and T2 leave their secondary side floating with no other ground
+      path stamped anywhere, so the whole downstream network's common-mode
+      direction is singular by construction -- this IS the paper's
+      phenomenon, not a reconstruction defect. SVD/RRQR/Tikhonov all
+      converge and agree closely (see tests/test_ieee13.py). Line-to-line
+      voltages are far tighter across the solution than raw phase
+      magnitudes, consistent with handoff.md section 7's zero-sequence/
+      common-mode hypothesis. NOT YET cross-validated against an
+      independent OpenDSS solve (Member E's track; see Limitations in the
+      project README).
+
   ieee37:
     description: "TBD — Week 3 task"
     source: "IEEE PES Distribution Test Feeder Working Group (pending)"
