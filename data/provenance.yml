@@ -92,18 +92,37 @@ feeders:
     modifications: "Paper modifications applied on top of official data; see paper_specified_parameters and reconstruction_assumptions above."
     reproducibility: "Deterministic — no randomness in circuit definition."
     validation_status: >
-      Jacobian finite-difference validated (E_J ~ 8.6e-11, tests/test_ieee13.py).
-      Direct solver fails (kappa_2 ~ 4.5e18 at flat start) as expected: both
-      T1 and T2 leave their secondary side floating with no other ground
-      path stamped anywhere, so the whole downstream network's common-mode
-      direction is singular by construction -- this IS the paper's
-      phenomenon, not a reconstruction defect. SVD/RRQR/Tikhonov all
-      converge and agree closely (see tests/test_ieee13.py). Line-to-line
-      voltages are far tighter across the solution than raw phase
-      magnitudes, consistent with handoff.md section 7's zero-sequence/
-      common-mode hypothesis. NOT YET cross-validated against an
-      independent OpenDSS solve (Member E's track; see Limitations in the
-      project README).
+      Jacobian finite-difference validated (E_J ~ 8.6e-11,
+      tests/test_ieee13.py). Direct solver fails (kappa_2 ~ 4.5e18 at flat
+      start) as expected: both T1 and T2 leave their secondary side
+      floating with no other ground path stamped anywhere -- this IS the
+      paper's phenomenon, not a reconstruction defect. The flat-start
+      Jacobian has EXACTLY 2 near-zero singular values (not 1): T1's
+      floating secondary contributes a network-wide common-mode null
+      direction, and T2's Delta-Delta connection independently floats bus
+      634 alone (a Delta-Delta transformer's stamped zero-sequence transfer
+      block is exactly zero, decoupling the two sides completely).
+      CROSS-VALIDATED against an independent OpenDSS solve of
+      data/raw/ieee13/ieee13_paper_reconstruction.dss
+      (experiments/exp02b_13bus_opendss_crosscheck.py): median line-to-line
+      relative error 6.6%, max 26.5%, concentrated at bus/phase-pairs
+      aligned with the 2-D near-null space (an expected consequence of two
+      independently-chosen regularizations -- this repo's Tikhonov
+      alpha=1e-8 vs. OpenDSS's internal ppm_antifloat -- picking different
+      particular solutions in a genuinely underdetermined subspace, not a
+      remaining bug). This cross-validation caught and fixed a real bug: an
+      earlier version of _accumulate_loads() in exp02_13bus.py normalized
+      per-phase load power against the full 3-phase S_base instead of
+      S_base/3, making every load ~3x too light. Confirmed via an isolated,
+      well-conditioned single-transformer OpenDSS comparison (no null-space
+      ambiguity there) that the fix reproduces OpenDSS to ~3e-6 pu. SVD and
+      RRQR agree tightly with each other and with Tikhonov at light load
+      (0.5x nominal) but OSCILLATE rather than converge at nominal load and
+      above on this severely ill-conditioned reconstruction -- Tikhonov
+      (alpha=1e-8) converges up to 1.25x nominal load before it also fails
+      at 1.5x. This solver-robustness-vs-load behavior is itself a
+      documented finding (experiments/exp_d_ieee13_investigation.py's
+      solver_robustness_study).
 
   ieee37:
     description: "TBD — Week 3 task"

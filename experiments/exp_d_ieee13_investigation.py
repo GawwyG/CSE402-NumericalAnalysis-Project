@@ -17,6 +17,18 @@ the resulting large voltage discrepancies are concentrated in the
 zero-sequence/common-mode component rather than positive-sequence or
 line-to-line voltage, i.e. a first controlled test of the hypothesis in
 handoff.md section 7.
+
+Solver choice: SOLVE_METHOD is "tikhonov" (alpha=1e-8), not "svd"/"rrqr".
+This was an empirical finding, not an arbitrary pick: at the reconstruction's
+now-corrected (see git history) per-phase load scale, SVD's and RRQR's
+undamped minimum-norm steps OSCILLATE rather than converge from a flat start
+at nominal loading and above -- the correction they solve for at each
+iteration is exact for the linearized problem but overshoots badly on this
+severely ill-conditioned (2-D near-null-space) Jacobian. Tikhonov's damped
+step converges cleanly up to 1.25x load; solver_robustness_study() below
+reports exactly where each of the four methods stops converging, which is
+itself one of this investigation's findings (see RQ1/RQ4 in
+robust_nr_powerflow_6_week_plan.md section 15).
 """
 
 from __future__ import annotations
@@ -37,8 +49,9 @@ from src.powerflow.newton import newton_raphson
 
 
 TOL_F = 1e-9
-MAX_ITER = 60
-SOLVE_METHOD = "svd"  # Rank-revealing so every sweep point can converge and be compared.
+MAX_ITER = 80
+SOLVE_METHOD = "tikhonov"
+SOLVE_OPTIONS = {"alpha": 1e-8}  # see module docstring: SVD/RRQR oscillate at this load scale.
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = ROOT / "results"
 
@@ -82,7 +95,7 @@ def _run_and_summarise(label: str, state, Ybus) -> dict:
     sigma_max0, sigma_min0, kappa0 = _flat_start_conditioning(state, Ybus)
     x0 = state.init_flat_start(v_mag=1.0)
     result = newton_raphson(
-        state, Ybus, x0, method=SOLVE_METHOD,
+        state, Ybus, x0, method=SOLVE_METHOD, solver_options=SOLVE_OPTIONS,
         tol_F=TOL_F, max_iter=MAX_ITER, compute_conditioning=True,
     )
     max_kappa = max(
@@ -113,6 +126,43 @@ def _run_and_summarise(label: str, state, Ybus) -> dict:
             f"V2_mean={row['v2_mean_abs']:.4f}pu"
         )
     return row
+
+
+def solver_robustness_study() -> list[dict]:
+    """Compare all four methods' convergence across the load-scaling grid.
+
+    Not requested verbatim by handoff.md section 25, but directly answers
+    RQ1/RQ4 (robustness and convergence/cost trade-offs, plan section 15)
+    on this specific doubly-floating reconstruction, and explains why this
+    module's other studies use Tikhonov rather than SVD/RRQR as their
+    solver (see module docstring): direct fails everywhere by construction
+    (the Jacobian is exactly singular even at flat start), SVD/RRQR's
+    undamped minimum-norm step oscillates above a load-dependent threshold,
+    and Tikhonov's damped step extends that threshold further before also
+    failing at the heaviest tested load.
+    """
+    print("=" * 88)
+    print("SOLVER ROBUSTNESS VS LOAD SCALE")
+    print("=" * 88)
+    rows = []
+    for load_scale in (0.50, 0.75, 1.00, 1.25, 1.50):
+        state, Ybus = build_13bus_system(load_scale=load_scale)
+        x0 = state.init_flat_start(v_mag=1.0)
+        row = {"load_scale": load_scale}
+        summary = []
+        for method, options in (
+            ("direct", None), ("svd", None), ("rrqr", None), ("tikhonov", {"alpha": 1e-8}),
+        ):
+            result = newton_raphson(
+                state, Ybus, x0, method=method, solver_options=options,
+                tol_F=TOL_F, max_iter=MAX_ITER, compute_conditioning=False,
+            )
+            row[f"{method}_converged"] = result["converged"]
+            row[f"{method}_iterations"] = result["iterations"]
+            summary.append(f"{method}={'OK' if result['converged'] else 'FAIL'}({result['iterations']})")
+        print(f"load_scale={load_scale:.2f}  " + "  ".join(summary))
+        rows.append(row)
+    return rows
 
 
 def load_scaling_study() -> list[dict]:
@@ -175,6 +225,7 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
 
 def run_all() -> dict[str, list[dict]]:
     results = {
+        "solver_robustness": solver_robustness_study(),
         "load_scaling": load_scaling_study(),
         "imbalance": imbalance_study(),
         "transformer_configuration": transformer_configuration_study(),

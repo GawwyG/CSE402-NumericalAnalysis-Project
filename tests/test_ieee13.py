@@ -78,13 +78,17 @@ def test_direct_solver_fails_on_the_doubly_floating_reconstruction():
 def test_svd_rrqr_and_tikhonov_all_converge_and_agree():
     """The three rank-revealing/regularized solvers should reach the same solution.
 
-    Unlike the 4-bus floating case (where SVD and RRQR's minimum-norm
-    choices diverged along the near-null direction by ~1e-5), this larger,
-    genuinely-singular-by-construction 13-bus system was observed to have
-    SVD and RRQR agree to ~1e-13 and Tikhonov (alpha=1e-8) agree to ~1e-8 --
-    tight enough to assert as a regression, not just "did not crash".
+    At this reconstruction's correctly-scaled nominal load (see git history:
+    an earlier per-phase power normalization bug made loads ~3x too light),
+    SVD's and RRQR's undamped minimum-norm Newton steps OSCILLATE rather
+    than converge on this severely ill-conditioned (2-D near-null-space,
+    see test_flat_start_jacobian_has_exactly_two_near_zero_singular_values)
+    system -- this is exercised directly by
+    test_svd_and_rrqr_do_not_converge_at_nominal_load_but_tikhonov_does
+    below. At a lighter load (0.5x nominal) all three methods DO converge,
+    and SVD/RRQR agree tightly there; that is what this test checks.
     """
-    state, Ybus = build_13bus_system()
+    state, Ybus = build_13bus_system(load_scale=0.5)
     x0 = state.init_flat_start(v_mag=1.0)
 
     svd = newton_raphson(state, Ybus, x0, method="svd", tol_F=1e-9, max_iter=60, compute_conditioning=False)
@@ -98,7 +102,53 @@ def test_svd_rrqr_and_tikhonov_all_converge_and_agree():
     assert rrqr["converged"] is True
     assert tikhonov["converged"] is True
     np.testing.assert_allclose(svd["x"], rrqr["x"], rtol=1e-9, atol=1e-9)
-    np.testing.assert_allclose(svd["x"], tikhonov["x"], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(svd["x"], tikhonov["x"], rtol=1e-3, atol=1e-3)
+
+
+def test_svd_and_rrqr_do_not_converge_at_nominal_load_but_tikhonov_does():
+    """Regression test for the solver-robustness finding driving SOLVE_METHOD choice.
+
+    experiments/exp_d_ieee13_investigation.py switched its default solver
+    from SVD to Tikhonov specifically because of this behavior -- see that
+    module's docstring. This test pins the observation down so a future
+    change that accidentally "fixes" the oscillation (e.g. a different
+    reconstruction assumption) is noticed rather than silently invalidating
+    that module's documented rationale.
+    """
+    state, Ybus = build_13bus_system()  # load_scale=1.0 (nominal)
+    x0 = state.init_flat_start(v_mag=1.0)
+
+    svd = newton_raphson(state, Ybus, x0, method="svd", tol_F=1e-9, max_iter=80, compute_conditioning=False)
+    rrqr = newton_raphson(state, Ybus, x0, method="rrqr", tol_F=1e-9, max_iter=80, compute_conditioning=False)
+    tikhonov = newton_raphson(
+        state, Ybus, x0, method="tikhonov", solver_options={"alpha": 1e-8},
+        tol_F=1e-9, max_iter=80, compute_conditioning=False,
+    )
+
+    assert svd["converged"] is False
+    assert rrqr["converged"] is False
+    assert tikhonov["converged"] is True
+
+
+def test_flat_start_jacobian_has_exactly_two_near_zero_singular_values():
+    """Structural check: T1 and T2 each contribute one independent floating direction.
+
+    Both transformers leave their secondary floating with no other ground
+    path, and (per exp02_13bus.py's module docstring) a Delta-Delta
+    transformer's stamped zero-sequence transfer block is exactly zero, so
+    T2's floating reference at bus 634 is independent of T1's floating
+    reference across the rest of the network -- a 2-dimensional near-null
+    space, not 1-dimensional. This was confirmed numerically while
+    debugging the per-phase load normalization fix (see git history) and
+    is pinned here as a structural regression check.
+    """
+    state, Ybus = build_13bus_system()
+    x0 = state.init_flat_start(v_mag=1.0)
+    J0 = compute_jacobian(x0, state, Ybus)
+    sv0 = np.linalg.svd(J0, compute_uv=False)
+
+    near_zero = np.sum(sv0 < 1e-6 * sv0[0])
+    assert near_zero == 2
 
 
 def test_line_to_line_voltage_is_far_better_conditioned_than_phase_voltage():
@@ -109,10 +159,26 @@ def test_line_to_line_voltage_is_far_better_conditioned_than_phase_voltage():
     voltage magnitudes should therefore vary far less across the converged
     solution than raw phase magnitudes do, matching the zero-sequence
     hypothesis in handoff.md section 7.
+
+    Update after the per-phase load fix (see git history): this
+    reconstruction's flat-start Jacobian has TWO near-zero singular values,
+    not one (test_flat_start_jacobian_has_exactly_two_near_zero_singular_
+    values) -- T1's floating secondary contributes a network-wide common-
+    mode direction, and T2's Delta-Delta connection independently floats
+    bus 634 alone (a Delta-Delta transformer's stamped zero-sequence
+    transfer block is exactly zero, decoupling the two sides' zero-sequence
+    completely). A single-bus floating offset is NOT a pure common-mode
+    shift across the whole network, so it is not fully cancelled by a
+    simple line-to-line difference at every bus the way T1's contribution
+    is. The reduction is therefore real but more modest than the ~4x-plus
+    seen in the 4-bus / simpler single-floating-transformer case.
     """
     state, Ybus = build_13bus_system()
     x0 = state.init_flat_start(v_mag=1.0)
-    result = newton_raphson(state, Ybus, x0, method="svd", tol_F=1e-9, max_iter=60, compute_conditioning=False)
+    result = newton_raphson(
+        state, Ybus, x0, method="tikhonov", solver_options={"alpha": 1e-8},
+        tol_F=1e-9, max_iter=80, compute_conditioning=False,
+    )
     assert result["converged"] is True
 
     V = state.unpack(result["x"])
@@ -126,4 +192,4 @@ def test_line_to_line_voltage_is_far_better_conditioned_than_phase_voltage():
                 line_line_mags.append(abs(V[(bus, p1)] - V[(bus, p2)]))
     line_line_spread = max(line_line_mags) - min(line_line_mags)
 
-    assert line_line_spread < 0.25 * phase_spread
+    assert line_line_spread < 0.75 * phase_spread

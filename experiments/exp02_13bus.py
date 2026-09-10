@@ -146,11 +146,25 @@ def _accumulate_loads() -> dict[tuple[str, str], tuple[float, float]]:
     per (bus, phase), since "692" loads land on the same merged bus as
     "671" loads (assumption D) and must be summed, not overwritten.
     """
+    # Per-phase (per-bus-phase) power must be normalized against the
+    # PER-PHASE base S_BASE_MVA/3, not the full 3-phase base -- confirmed
+    # empirically (see git history / commit message) by cross-validating
+    # against OpenDSS on an isolated T1-only circuit: using S_BASE_MVA
+    # directly produced a per-phase voltage drop ~3x too small (a plain
+    # kW/S_base3ph gives one-third of the correct per-unit power). This
+    # matches src/powerflow/mismatch.py's actual convention, reverse-
+    # engineered from Member E's already-validated ieee4_reconstruction.dss
+    # (data/raw/ieee4/ieee4_reconstruction.dss): its "kW = P_spec_pu *
+    # S_base" for an OpenDSS Phases=3 load object sets the object's TOTAL
+    # (not per-phase) kW, which OpenDSS then splits evenly across 3 phases
+    # -- i.e. physical per-phase kW = P_spec_pu * S_base / 3, the same
+    # relationship applied here in reverse.
+    per_phase_base_kva = S_BASE_MVA * 1000.0 / 3.0
     totals: dict[tuple[str, str], list[float]] = {}
     for load in OFFICIAL_LOADS:
         n_legs = len(load["phases"])
-        p_pu_per_leg = (load["kw"] / n_legs) / (S_BASE_MVA * 1000.0)
-        q_pu_per_leg = (load["kvar"] / n_legs) / (S_BASE_MVA * 1000.0)
+        p_pu_per_leg = (load["kw"] / n_legs) / per_phase_base_kva
+        q_pu_per_leg = (load["kvar"] / n_legs) / per_phase_base_kva
         for phase in load["phases"]:
             key = (load["bus"], phase)
             entry = totals.setdefault(key, [0.0, 0.0])
