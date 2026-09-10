@@ -109,14 +109,32 @@ def build_69bus_system(load_scale: float = 1.0):
             is_slack=True, V_slack=v_slack[p],
         ))
 
+    # BUG FIX (see git history): BUS_LOADS_MW's Pd/Qd are the case69 bus's
+    # TOTAL three-phase load (standard MATPOWER convention), NOT a
+    # per-phase value -- an earlier version of this function divided the
+    # total directly by the per-phase base (S_BASE_MVA*1000/3), giving a
+    # per-unit load 3x too large (identical in effect to the earlier
+    # IEEE-13 per-phase-load bug, though this was a different, independent
+    # mistake in a different reconstruction). The correct conversion first
+    # splits the total evenly across 3 phases (matching
+    # experiments/exp02_13bus.py's and exp03_37bus.py's
+    # _accumulate_loads() pattern: per-phase actual kW / (S_base_kVA/3)),
+    # which is algebraically just total_kW / S_base_kVA -- written with
+    # the explicit /3.0 here for consistency with that established
+    # convention rather than the simplified form, so the pattern is
+    # recognizable across all three reconstructions. Caught via an
+    # isolated single-branch/single-load OpenDSS cross-check at bus 61
+    # (this feeder's single largest load, ~33% voltage error before this
+    # fix, ~0.1% after) -- see
+    # experiments/exp04b_69bus_opendss_crosscheck.py.
     per_phase_base_kva = S_BASE_MVA * 1000.0 / 3.0
     loads_by_bus = {i: (pd, qd) for i, pd, qd in BUS_LOADS_MW}
     for i in range(1, 70):
         if i == SLACK_BUS:
             continue
         pd_mw, qd_mw = loads_by_bus.get(i, (0.0, 0.0))
-        p_pu = (pd_mw * 1000.0) / per_phase_base_kva * load_scale
-        q_pu = (qd_mw * 1000.0) / per_phase_base_kva * load_scale
+        p_pu = (pd_mw * 1000.0 / 3.0) / per_phase_base_kva * load_scale
+        q_pu = (qd_mw * 1000.0 / 3.0) / per_phase_base_kva * load_scale
         for p in PHASES:
             state.add_bus_phase(BusPhase(
                 bus_name=_bus_name(i), phase=p, active=True, is_slack=False,

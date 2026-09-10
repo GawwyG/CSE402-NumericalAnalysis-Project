@@ -74,15 +74,19 @@ experiments/
   exp02b_13bus_opendss_crosscheck.py   IEEE 13-bus independent OpenDSS validation
   exp_d_ieee13_investigation.py        IEEE-13 anomaly investigation (see below)
   exp03_37bus.py                       IEEE 37-bus reconstruction + 4-solver comparison
-  exp03b_37bus_opendss_crosscheck.py   IEEE 37-bus independent OpenDSS validation
+  exp03b_37bus_opendss_crosscheck.py   IEEE 37-bus (radial) independent OpenDSS validation
+  exp03c_37bus_quasiradial_opendss_crosscheck.py  IEEE 37-bus (quasi-radial) OpenDSS validation
   exp04_69bus.py                       IEEE 69-bus reconstruction + 4-solver comparison
+  exp04b_69bus_opendss_crosscheck.py   IEEE 69-bus independent OpenDSS validation
   exp_e_ieee118_scaling.py             IEEE 118-bus linear-solver runtime scaling
 
 data/
   provenance.yml    Source and every reconstruction assumption for each feeder
   raw/ieee4/        4-bus OpenDSS reconstruction (Member E)
   raw/ieee13/        Official IEEE13Nodeckt.dss + this project's paper-modified twin
-  raw/ieee37/        Official ieee37.dss + this project's paper-modified twin
+  raw/ieee37/        Official ieee37.dss + this project's paper-modified twins (radial + quasi-radial)
+  raw/ieee69/        Official case69.m data + a programmatically-generated OpenDSS twin
+                     (gen_ieee69_dss.py -- regenerate this way, don't hand-edit the .dss)
 
 tests/              pytest suite (see "Testing" below)
 results/, figures/  Generated CSVs/plots from the sweep experiments (gitignored)
@@ -99,12 +103,15 @@ complete.
 |---|:-:|:-:|:-:|:-:|
 | IEEE 4-bus  | ✅ | ✅ | ✅ | ✅ (~1e-6 pu agreement) |
 | IEEE 13-bus | ✅ | ✅ | ✅ | ✅ (median 6.6%, max 26.5% line-to-line error — see below) |
-| IEEE 37-bus (radial + quasi-radial) | ✅ | ✅ | ✅ | ✅ radial (median 2.3%, max 6.5%); quasi-radial not yet cross-validated |
+| IEEE 37-bus (radial + quasi-radial) | ✅ | ✅ | ✅ | ✅ radial (median 2.3%, max 6.5%); ✅ quasi-radial (median 2.3%, max 6.1%) |
 | IEEE 118-bus | ✅ (linear-solver scaling only, per `handoff.md` §20 — not a power-flow/singularity case) | — | — | n/a |
-| IEEE 69-bus | ✅ | ✅ | ✅ | ❌ not built for this lowest-priority stretch case |
+| IEEE 69-bus | ✅ | ✅ | ✅ | ✅ (median 3.3e-8, max 8.2e-6 — essentially machine precision) |
 
-All items in `handoff.md` section 31's stretch-goal list are now done.
-Nothing from the project's planned scope remains unattempted; see
+Every feeder is now independently cross-validated against OpenDSS — the
+last two gaps (IEEE-37 quasi-radial, IEEE-69) were closed by generating
+matching OpenDSS twins and comparing (see `experiments/exp03c_*` and
+`exp04b_*`). All items in `handoff.md` section 31's stretch-goal list are
+done; nothing from the project's planned scope remains unattempted. See
 `data/provenance.yml` for each feeder's open, explicitly-documented
 discrepancies (never silently resolved).
 
@@ -135,7 +142,7 @@ discrepancies (never silently resolved).
   strength is uniformly best across feeders (motivating the project's
   whole comparative-methods premise).
 - **IEEE 69-bus**: unlike IEEE-13/37, the direct solver actually
-  *converges* here (`κ≈2.3e5` at flat start, growing to `~6.5e9` during
+  *converges* here (`κ≈2.3e5` at flat start, growing to `~5.7e10` during
   iteration — severe, but under the guard threshold). Ybus itself still has
   an exact null direction across each floating transformer's downstream
   region (confirmed numerically), but the nonlinear Jacobian's degeneracy
@@ -143,7 +150,12 @@ discrepancies (never silently resolved).
   region carries most of the feeder's load, it's severely ill-conditioned
   rather than exactly singular. A genuine structural finding, not a
   reconstruction defect: not every floating-Delta topology produces exact
-  flat-start singularity. See
+  flat-start singularity. Because there is no exact null-space ambiguity
+  here, its OpenDSS cross-validation is essentially exact (median relative
+  error `3.3e-8`, max `8.2e-6`) — far tighter than IEEE-13/37's, and a nice
+  confirmation of the structural story: the discrepancies elsewhere really
+  do come from an underdetermined subspace with more than one legitimate
+  answer, not from a limitation of either solver. See
   [`tests/test_ieee69.py`](tests/test_ieee69.py) for the full derivation.
 - **IEEE 118-bus** (linear-solver scaling only, not a singularity case —
   `handoff.md` section 20): benchmarked on the real pandapower `case118`
@@ -152,15 +164,22 @@ discrepancies (never silently resolved).
   around 2.2–2.5 across that range (sub-cubic at these sizes, as expected
   from BLAS-level dense-solver optimizations) — see
   [`experiments/exp_e_ieee118_scaling.py`](experiments/exp_e_ieee118_scaling.py).
-- Every one of these numbers came from a **real bug caught by cross-
-  validation**: an earlier version of the IEEE-13 per-phase load
-  normalization was off by a factor of 3 (dividing by the full 3-phase
-  base instead of the per-phase base). Caught via an isolated,
-  well-conditioned single-transformer OpenDSS comparison, fixed, and
-  re-verified to ~3e-6 pu agreement there. See the git history around
-  `experiments/exp02_13bus.py` for the full investigation — a worked
-  example of exactly the kind of independent-solver validation
-  `handoff.md` calls for.
+- Every one of these numbers came from **real bugs caught by cross-
+  validation** — twice, independently: an earlier version of the IEEE-13
+  per-phase load normalization divided by the full 3-phase base instead of
+  the per-phase base (3× too light); an earlier version of the IEEE-69
+  reconstruction applied each bus's *total* three-phase load directly to
+  every phase without dividing by 3 first (3× too heavy — the same
+  *category* of mistake, but a different bug in different code, not a
+  repeat of the first one). Both were caught the same way: isolate a
+  small, well-conditioned sub-circuit (never the full, already-
+  ill-conditioned system) and compare it against an independent OpenDSS
+  solve *before* trusting a full-system comparison — the IEEE-69 bug hid
+  behind a plausible-looking ~33% voltage error at exactly the feeder's
+  single heaviest-loaded bus, not an obviously-wrong number. See the git
+  history around `experiments/exp02_13bus.py` and `exp04_69bus.py` for
+  both investigations — worked examples of the independent-solver
+  validation `handoff.md` calls for.
 
 ## Testing
 
