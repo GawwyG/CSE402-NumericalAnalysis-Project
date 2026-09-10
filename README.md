@@ -7,11 +7,15 @@ Pseudo-Inverse,"* IEEE Access, 2023
 ([doi:10.1109/ACCESS.2023.3269503](https://doi.org/10.1109/ACCESS.2023.3269503)).
 
 Full project context, terminology, and every modeling decision's rationale
-live in [`handoff.md`](handoff.md) (the authoritative spec) and
-[`robust_nr_powerflow_6_week_plan.md`](robust_nr_powerflow_6_week_plan.md)
-(the team's implementation plan). **This file is the practical "how to run
-this repo, and what state it's actually in" reference** — read `handoff.md`
-first for *why*, this file for *how*.
+live in `handoff.md` (the authoritative spec) and
+`robust_nr_powerflow_6_week_plan.md` (the team's implementation plan) —
+internal dev-team documents, kept locally by the team but not tracked in
+this repository (see `.gitignore`), so those exact filenames won't be
+present for an outside clone. **This README is the practical, public "how
+to run this repo, and what state it's actually in" reference** and does
+not assume access to those internal documents; citations to them below
+(e.g. "`handoff.md` section 6") record where a decision's rationale comes
+from for the team's own reference.
 
 ## What this project does
 
