@@ -177,7 +177,28 @@ def _active_bus_phases() -> dict[str, set[str]]:
     return phases_by_bus
 
 
-def build_13bus_system(load_scale: float = 1.0):
+# Per-phase imbalance multipliers for the IEEE-13 imbalance sweep
+# (handoff.md section 25.B). The paper does not fully specify a
+# machine-readable phase-by-phase imbalance rule (handoff.md section 15),
+# so this is an explicitly documented reconstruction rule, not the paper's
+# own: at imbalance level L (0.0-1.0), phase a's load is scaled by
+# (1+L), phase b is left at its nominal value, and phase c is scaled by
+# (1-L). This keeps total three-phase load roughly constant while
+# increasing phase-to-phase asymmetry monotonically with L, which is the
+# property the sweep actually needs (see handoff.md section 25.B's goal:
+# "determine whether imbalance alone explains the anomaly", not to match
+# any specific real imbalance profile).
+IMBALANCE_PHASE_MULTIPLIER = {"a": lambda L: 1.0 + L, "b": lambda L: 1.0, "c": lambda L: 1.0 - L}
+
+
+def build_13bus_system(
+    load_scale: float = 1.0,
+    imbalance: float = 0.0,
+    *,
+    t1_secondary_conn: str = "delta",
+    t2_primary_conn: str = "delta",
+    t2_secondary_conn: str = "delta",
+):
     """Build the modified IEEE 13-node system per this module's docstring.
 
     Parameters
@@ -186,12 +207,33 @@ def build_13bus_system(load_scale: float = 1.0):
         Uniform multiplier on every load's P and Q, for the load-scaling
         sensitivity study (handoff.md section 25.A). ``1.0`` is nominal
         loading.
+    imbalance : float
+        Per-phase load imbalance level in ``[0.0, 1.0)`` applied on top of
+        ``load_scale`` via ``IMBALANCE_PHASE_MULTIPLIER`` above, for the
+        imbalance sweep (handoff.md section 25.B). ``0.0`` (default) is
+        balanced loading, matching the paper-specified reconstruction.
+    t1_secondary_conn, t2_primary_conn, t2_secondary_conn : str
+        Winding connection overrides for the transformer-configuration
+        sensitivity study (handoff.md section 25.C: "isolate whether
+        floating transformer regions create the numerical rank
+        deficiency"). Defaults reproduce the paper-specified Yg-Delta (T1)
+        / Delta-Delta (T2) reconstruction exactly. T1's primary is always
+        "yg" (not swept: handoff.md's T1 spec is explicitly Yg on the
+        primary; only the floating/grounded side is of interest here).
+        Passing "yg" for a normally-floating winding adds a solid ground
+        reference there (``ground_*_admittance`` is left at the
+        ``stamp_transformer`` default of 0.0 in every case, i.e. no
+        anti-float-style regularization is added even for a "yg" override
+        -- grounding comes only from the winding connection itself).
 
     Returns
     -------
     state : NetworkState
     Ybus : numpy.ndarray, dense complex admittance matrix
     """
+    if not 0.0 <= imbalance < 1.0:
+        raise ValueError(f"imbalance must be in [0.0, 1.0); received {imbalance}.")
+
     state = NetworkState()
     phases_by_bus = _active_bus_phases()
     loads_pu = _accumulate_loads()
@@ -209,15 +251,17 @@ def build_13bus_system(load_scale: float = 1.0):
         ))
 
     # Every other bus: PQ, with P_spec/Q_spec from the accumulated,
-    # load_scale-scaled per-phase loads (zero for a bus-phase with no load).
+    # load_scale- and imbalance-scaled per-phase loads (zero for a
+    # bus-phase with no load).
     for bus, phases in phases_by_bus.items():
         if bus == "SourceBus":
             continue
         for p in sorted(phases, key=PHASES.index):
             p_pu, q_pu = loads_pu.get((bus, p), (0.0, 0.0))
+            scale = load_scale * IMBALANCE_PHASE_MULTIPLIER[p](imbalance)
             state.add_bus_phase(BusPhase(
                 bus_name=bus, phase=p, active=True, is_slack=False,
-                P_spec=p_pu * load_scale, Q_spec=q_pu * load_scale,
+                P_spec=p_pu * scale, Q_spec=q_pu * scale,
             ))
 
     state.finalize()
@@ -236,21 +280,24 @@ def build_13bus_system(load_scale: float = 1.0):
             phases_i=line["phases"], phases_j=line["phases"],
         )
 
-    # T1 ("Sub"): Yg (SourceBus) - Delta (650), paper R/X, no extra ground
-    # path on the Delta secondary -- the deliberately unregularized case.
+    # T1 ("Sub"): Yg (SourceBus) - Delta (650) by default, paper R/X.
+    # t1_secondary_conn lets the transformer-configuration study swap the
+    # secondary to "yg" to add a ground reference and observe the effect
+    # on conditioning.
     stamp_transformer(
         ybus_dict,
         bus_p="SourceBus", conn_p="yg",
-        bus_s="650", conn_s="delta",
+        bus_s="650", conn_s=t1_secondary_conn,
         r_pu=T1_R_PU, x_pu=T1_X_PU,
     )
 
-    # T2 ("XFM1"): Delta (633) - Delta (634), paper R/X rescaled to the
-    # system base.
+    # T2 ("XFM1"): Delta (633) - Delta (634) by default, paper R/X
+    # rescaled to the system base. t2_primary_conn/t2_secondary_conn let
+    # the transformer-configuration study swap either winding to "yg".
     stamp_transformer(
         ybus_dict,
-        bus_p="633", conn_p="delta",
-        bus_s="634", conn_s="delta",
+        bus_p="633", conn_p=t2_primary_conn,
+        bus_s="634", conn_s=t2_secondary_conn,
         r_pu=T2_R_PU, x_pu=T2_X_PU,
     )
 
