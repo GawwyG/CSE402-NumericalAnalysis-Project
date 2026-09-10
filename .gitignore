@@ -10,3 +10,11 @@ figures/*.png
 .DS_Store
 verified_output.md
 random/
+
+# Internal dev-team coordination docs (AI-assistant context, per-member
+# stage handoffs, working plan) -- not meant for outside/public viewers.
+# README.md is the public-facing entry point; keep it tracked.
+handoff.md
+handoffs/
+robust_nr_powerflow_6_week_plan.md
+project_structure.md
