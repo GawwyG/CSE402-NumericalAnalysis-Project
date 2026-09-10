@@ -93,13 +93,13 @@ complete.
 |---|:-:|:-:|:-:|:-:|
 | IEEE 4-bus  | ✅ | ✅ | ✅ | ✅ (~1e-6 pu agreement) |
 | IEEE 13-bus | ✅ | ✅ | ✅ | ✅ (median 6.6%, max 26.5% line-to-line error — see below) |
-| IEEE 37-bus | ✅ | ✅ | ✅ | ✅ (median 2.3%, max 6.5% line-to-line error) |
-| IEEE 69-bus, IEEE 118-bus | ❌ | — | — | — |
+| IEEE 37-bus (radial + quasi-radial) | ✅ | ✅ | ✅ | ✅ radial (median 2.3%, max 6.5%); quasi-radial not yet cross-validated |
+| IEEE 118-bus | ✅ (linear-solver scaling only, per `handoff.md` §20 — not a power-flow/singularity case) | — | — | n/a |
+| IEEE 69-bus | ❌ | — | — | — |
 
-**Not done** (stretch goals, per `handoff.md` section 31, roughly in
-priority order): IEEE-37 quasi-radial variant, IEEE-69 reconstruction,
-IEEE-118 runtime scaling benchmark. None of these block the core numerical
-comparison or the IEEE-13 investigation.
+**Not done**: IEEE-69 reconstruction (the one remaining stretch goal from
+`handoff.md` section 31; lowest priority there, and does not block the
+core numerical comparison or the IEEE-13 investigation).
 
 ### Headline findings
 
@@ -127,6 +127,13 @@ comparison or the IEEE-13 investigation.
   a concrete demonstration that no single solver or fixed regularization
   strength is uniformly best across feeders (motivating the project's
   whole comparative-methods premise).
+- **IEEE 118-bus** (linear-solver scaling only, not a singularity case —
+  `handoff.md` section 20): benchmarked on the real pandapower `case118`
+  admittance matrix, block-replicated up to 8× (~1900×1900 real Jacobian
+  form). All four solvers show empirical wall-clock scaling exponents
+  around 2.2–2.5 across that range (sub-cubic at these sizes, as expected
+  from BLAS-level dense-solver optimizations) — see
+  [`experiments/exp_e_ieee118_scaling.py`](experiments/exp_e_ieee118_scaling.py).
 - Every one of these numbers came from a **real bug caught by cross-
   validation**: an earlier version of the IEEE-13 per-phase load
   normalization was off by a factor of 3 (dividing by the full 3-phase
@@ -207,6 +214,7 @@ regenerate locally):
 python experiments/exp_b_svd_tolerance_4bus.py       # SVD rank-threshold sweep
 python experiments/exp_d_tikhonov_lambda_sweep_4bus.py  # Tikhonov alpha sweep
 python experiments/exp_d_ieee13_investigation.py     # load/imbalance/transformer-config/solver-robustness studies
+python experiments/exp_e_ieee118_scaling.py          # linear-solver runtime scaling (balanced, no singularity)
 ```
 
 ## Team ownership (per `handoff.md` section 26)
