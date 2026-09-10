@@ -124,11 +124,70 @@ feeders:
       documented finding (experiments/exp_d_ieee13_investigation.py's
       solver_robustness_study).
 
-  ieee37:
-    description: "TBD — Week 3 task"
-    source: "IEEE PES Distribution Test Feeder Working Group (pending)"
-    retrieved_by: "Member E"
-    retrieved_date: null
+  ieee37_reconstruction:
+    description: >
+      Official IEEE 37-node test feeder (OpenDSS implementation). Per
+      handoff.md section 16, the official topology already matches the
+      paper's description almost exactly (both transformers already
+      Delta-Delta, XFM secondary already unloaded), so this reconstruction
+      needs far less modification than IEEE-13.
+    source_of_truth: >
+      src/model/ieee37_data.py (official data, verbatim transcription) +
+      experiments/exp03_37bus.py (reconstruction decisions, all documented
+      in that module's docstring)
+    official_data_source:
+      master_url: "https://sourceforge.net/p/electricdss/code/HEAD/tree/trunk/Version8/Distrib/IEEETestCases/37Bus/ieee37.dss"
+      linecodes_url: "https://sourceforge.net/p/electricdss/code/HEAD/tree/trunk/Version8/Distrib/IEEETestCases/37Bus/IEEELineCodes.DSS"
+      retrieved_date: "2026-09-10"
+      retrieved_by: "assistant session (fetched per handoff.md section 13's cited source)"
+    reconstruction_assumptions:
+      - system_base: "S_BASE_MVA=2.5 (matches SubXF's own rating exactly)"
+        owner: "this reconstruction; standard per-unit convention"
+      - line_length_unit: >
+          Official line lengths (e.g. "Length=0.96") carry no explicit
+          units= keyword; linecodes 721-724 are calibrated in ohms per
+          1000 ft. Verified (not assumed) by cross-checking an isolated
+          single-line OpenDSS circuit against this reconstruction's own
+          conversion before committing -- see git history, the same
+          investigation that caught the IEEE-13 per-phase load bug.
+        owner: "this reconstruction"
+      - delta_load_approximation: "All loads (every load in this feeder is delta-connected) approximated as wye-equivalent, same as IEEE-13 assumption B"
+        owner: "this reconstruction; see exp03_37bus.py assumption D"
+      - constant_pq_load_model: "All loads treated as OpenDSS Model=1 regardless of official per-load model number, same as IEEE-13 assumption C"
+        owner: "this reconstruction; see exp03_37bus.py assumption D"
+      - regulators_merged: "Open-delta regulators reg1a/reg1c and the Jumper line ideally merged (799r -> 799), same rationale as IEEE-13 assumption D"
+        owner: "this reconstruction; see exp03_37bus.py assumption C"
+      - xfm1_reactance_discrepancy: >
+          handoff.md section 17 flags a factor-of-10 discrepancy between
+          the paper's reported X~0.00181 pu and the official OpenDSS
+          model's Xhl=1.81% (=0.0181 pu on XFM1's own base). Not resolved
+          here: build_37bus_system()'s xfm1_xhl_percent parameter defaults
+          to the official sourced value (1.81) and accepts 0.181 as the
+          alternate paper-literal reading, per handoff.md's explicit
+          instruction to maintain both variants rather than silently pick
+          one.
+        owner: "flagged in handoff.md; not resolved by this reconstruction"
+    retrieved_by: "assistant session"
+    retrieved_date: "2026-09-10"
+    modifications: "Minimal -- see reconstruction_assumptions above; no paper-specified transformer/load changes were needed for this feeder."
+    reproducibility: "Deterministic — no randomness in circuit definition."
+    validation_status: >
+      Jacobian finite-difference validated (E_J ~ 7.8e-11,
+      tests/test_ieee37.py). Direct solver fails (kappa_2 ~ 1.2e18 at flat
+      start) as expected: both transformers are Delta-Delta with no other
+      ground path stamped anywhere. The flat-start Jacobian has 4 near-zero
+      singular values (observed, not predicted by a fixed formula -- see
+      tests/test_ieee37.py). SVD and RRQR both converge cleanly at nominal
+      load (10 iterations) and agree to ~1.8e-11 -- UNLIKE the IEEE-13
+      reconstruction, this feeder does not exhibit SVD/RRQR oscillation at
+      nominal load (Tikhonov alpha=1e-8 does fail to converge here in 80
+      iterations, the reverse of IEEE-13's finding -- a concrete
+      demonstration that no single method/fixed-alpha choice is uniformly
+      best across feeders). CROSS-VALIDATED against an independent OpenDSS
+      solve (experiments/exp03b_37bus_opendss_crosscheck.py):
+      median line-to-line relative error 2.3%, max 6.5% -- substantially
+      tighter than IEEE-13's 6.6%/26.5%, consistent with this feeder's
+      null-space ambiguity mattering less to the overall solution.
 
   ieee118:
     description: "Balanced computational scaling benchmark only, via pandapower.networks.case118()"
