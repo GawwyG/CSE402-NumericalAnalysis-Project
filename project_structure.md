@@ -1,3 +1,10 @@
+> **Note:** this file is Member A's early-stage planning checklist and no
+> longer reflects the repository's actual state (it substantially
+> undersells what's done, and doesn't cover the IEEE-13/37 reconstructions,
+> `src/diagnostics/`, or the RRQR/Tikhonov solvers). Kept for historical
+> context. See [`README.md`](README.md) for the current, accurate map and
+> status.
+
 project/
 │
 ├── src/
