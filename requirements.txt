@@ -5,3 +5,5 @@ opendssdirect.py>=0.9
 pandas>=2.0
 pyyaml>=6.0
 pandapower>=2.14   # for IEEE-118 scaling (Week 5)
+matplotlib>=3.7    # sweep-experiment plots (exp_b_svd_tolerance_4bus.py, exp_d_tikhonov_lambda_sweep_4bus.py)
+pytest>=7.0        # test suite
