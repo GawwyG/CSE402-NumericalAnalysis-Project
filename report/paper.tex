@@ -25,8 +25,8 @@ in Unbalanced Three-Phase Distribution Feeders}
 \IEEEauthorblockN{Author Names Withheld for Draft}
 \IEEEauthorblockA{\textit{Department of Computer Science and Engineering} \\
 \textit{[University name]} \\
-[City, Country] \\
-[emails]}
+{}[City, Country] \\
+{}[emails]}
 }
 
 \maketitle
@@ -180,8 +180,11 @@ comparison on a given feeder. The analytical Jacobian is validated against
 centered finite differences,
 \begin{equation}
 J_{ij}^{\mathrm{FD}} \approx \frac{F_i(x + h e_j) - F_i(x - h e_j)}{2h},
-\qquad E_J = \frac{\|J^{\mathrm{analytic}} - J^{\mathrm{FD}}\|_F}{\|J^{\mathrm{FD}}\|_F},
 \label{eq:fd}
+\end{equation}
+\begin{equation}
+E_J = \frac{\|J^{\mathrm{analytic}} - J^{\mathrm{FD}}\|_F}{\|J^{\mathrm{FD}}\|_F},
+\label{eq:fd-error}
 \end{equation}
 for every feeder before any downstream result is trusted; every
 reconstruction in this paper achieves $E_J < 10^{-9}$ (Table~\ref{tab:feeders}).
@@ -257,6 +260,7 @@ text.
 \centering
 \caption{Reconstructed feeders: size, flat-start conditioning, and Jacobian validation.}
 \label{tab:feeders}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
 Feeder & $n$ & $\kappa_2(J_0)$ & near-0 $\sigma_i$ & $E_J$ \\
@@ -267,7 +271,8 @@ IEEE 37-bus (radial) & 222 & $1.23\times10^{18}$ & 4 & $7.8\times10^{-11}$ \\
 IEEE 37-bus (quasi-radial) & 222 & $6.85\times10^{18}$ & 4 & $4.6\times10^{-11}$ \\
 IEEE 69-bus           & 408 & $2.28\times10^{5}$  & 0 & $7.0\times10^{-11}$ \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 
 \vspace{2pt}
 \footnotesize $n$: number of real unknowns ($2\times$ non-slack bus-phases).
