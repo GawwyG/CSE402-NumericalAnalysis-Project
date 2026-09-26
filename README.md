@@ -72,6 +72,7 @@ experiments/
   exp_d_tikhonov_*.py                  Tikhonov experiments + alpha sweep
   exp02_13bus.py                       IEEE 13-bus reconstruction + 4-solver comparison
   exp02b_13bus_opendss_crosscheck.py   IEEE 13-bus independent OpenDSS validation
+  exp_d_ieee13_tikhonov_alpha_sweep.py IEEE-13 nominal-load Tikhonov alpha sensitivity
   exp_d_ieee13_investigation.py        IEEE-13 anomaly investigation (see below)
   exp03_37bus.py                       IEEE 37-bus reconstruction + 4-solver comparison
   exp03b_37bus_opendss_crosscheck.py   IEEE 37-bus (radial) independent OpenDSS validation
@@ -250,6 +251,7 @@ regenerate locally):
 ```bash
 python experiments/exp_b_svd_tolerance_4bus.py       # SVD rank-threshold sweep
 python experiments/exp_d_tikhonov_lambda_sweep_4bus.py  # Tikhonov alpha sweep
+python experiments/exp_d_ieee13_tikhonov_alpha_sweep.py # IEEE-13 Tikhonov alpha sweep
 python experiments/exp_d_ieee13_investigation.py     # load/imbalance/transformer-config/solver-robustness studies
 python experiments/exp_e_ieee118_scaling.py          # linear-solver runtime scaling (balanced, no singularity)
 ```
