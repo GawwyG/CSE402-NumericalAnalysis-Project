@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from experiments.exp02_13bus import build_13bus_system
 from experiments.exp_d_ieee13_investigation import _run_and_summarise
+from experiments.exp_d_ieee13_tikhonov_alpha_sweep import TOL_F, run_sweep
 
 
 def test_grounding_both_transformers_drastically_improves_conditioning():
@@ -42,9 +43,9 @@ def test_grounding_both_transformers_drastically_improves_conditioning():
 def test_imbalance_increases_v0_while_leaving_v1_almost_unchanged():
     """Load imbalance on this floating topology should load onto V0, not V1.
 
-    Observed when this script was developed: V0_mean grows monotonically
-    with imbalance (0.29 -> 0.41 pu over 0%-30%) while V1_mean barely moves
-    (0.9549 -> 0.9547), consistent with handoff.md section 7's hypothesis
+    Current post-cross-validation result: V0_mean grows monotonically with
+    imbalance (0.337 -> 0.408 pu over 0%-30%) while V1_mean barely moves
+    (0.807 -> 0.800), consistent with handoff.md section 7's hypothesis
     that the anomalous IEEE-13 discrepancy concentrates in the common-mode/
     zero-sequence component rather than the physically-normal positive-
     sequence component.
@@ -82,3 +83,21 @@ def test_load_scaling_does_not_change_flat_start_conditioning():
     heavy_row = _run_and_summarise("heavy", heavy_state, heavy_ybus)
 
     assert light_row["flat_start_kappa_2"] == heavy_row["flat_start_kappa_2"]
+
+
+def test_nominal_ieee13_has_a_narrow_tikhonov_alpha_window():
+    """The reported alpha is an empirical choice, not a universal default.
+
+    On the fixed nominal-load reconstruction, the project's logarithmic
+    sweep has one convergent point: 1e-8.  We pin the qualitative bracket as
+    well as convergence itself so a future model change cannot silently make
+    the report's parameter-sensitivity claim stale.
+    """
+    rows = run_sweep(write_csv=False, verbose=False)
+    by_alpha = {row["alpha"]: row for row in rows}
+
+    assert by_alpha[1e-8]["converged"] is True
+    assert by_alpha[1e-8]["final_F_inf"] < TOL_F
+    assert by_alpha[1e-10]["converged"] is False
+    assert by_alpha[1e-6]["converged"] is False
+    assert [row["alpha"] for row in rows if row["converged"]] == [1e-8]
