@@ -31,3 +31,6 @@ CLAUDE_PROMPT.md
 *.toc
 *.nav
 *.snm
+presentation.pdf
+docs/project_guide.pdf
+docs/project_guide.tex
