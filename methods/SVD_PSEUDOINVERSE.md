@@ -75,25 +75,104 @@ answer":
   formula reduces to the ordinary inverse — it's a strict generalization,
   not a different method that happens to agree sometimes.
 
-## 4. A worked tiny example
+## 4. A worked tiny example — every matrix, every multiplication
 
 Take a deliberately singular 2×2 matrix (analogous in spirit to
 `C_DELTA`'s rank-2-ness, just scaled down to 2×2 for hand computation):
 ```
 J = [[1, 1],
-     [1, 1]]
+     [1, 1]],     rhs = [4, 4]
 ```
-This matrix's SVD is `σ_1 = 2`, `σ_2 = 0` — one well-determined direction
-(the "sum," `(1,1)/√2`) and one completely undetermined direction (the
-"difference," `(1,−1)/√2`), exactly the common-mode / differential-mode
-split you'd expect. Given `rhs = [4, 4]`:
-- `σ_1⁺ = 1/2`, `σ_2⁺ = 0`.
-- The pseudo-inverse solution comes out to `Δx = [2, 2]` — it fully
-  explains the "sum" direction (`4 = 2+2`✓) and contributes *nothing* extra
-  along the undetermined "difference" direction, even though `[3,1]`,
-  `[5,-1]`, etc. would *also* satisfy `J·Δx = rhs` exactly. `[2,2]` is
-  singled out as the answer specifically because it's the smallest such
-  vector.
+
+### Step 1 — the actual SVD (real numbers from `np.linalg.svd(J)`, not rounded)
+
+```
+U  = [[-0.7071067812, -0.7071067812],
+      [-0.7071067812,  0.7071067812]]
+
+Σ  = diag(2.0, 3.3547044514e-17)          <- second value is NOT exactly 0 in floating point, but is to every
+                                               digit that matters — this IS the floating common-mode direction
+
+Vᵀ = [[-0.7071067812, -0.7071067812],
+      [ 0.7071067812, -0.7071067812]]
+```
+`0.7071067812 ≈ 1/√2` — both `U` and `Vᵀ`'s rows are just `±(1,1)/√2` and
+`±(1,−1)/√2`, exactly the "sum direction" / "difference direction" pair
+predicted analytically. (`U = V` here, up to sign — a special feature of
+this particular matrix being *symmetric*; for a general Jacobian, which
+isn't symmetric, `U` and `V` are genuinely different rotations of the
+input space vs. the output space.)
+
+**Verify it's a real factorization** — multiply `U · Σ · Vᵀ` back together,
+entry by entry, and it must reconstruct `J` exactly:
+```
+U @ diag(Σ) @ Vᵀ =
+  [[(-0.7071)(2)(-0.7071) + (-0.7071)(3.35e-17)(0.7071),   (-0.7071)(2)(-0.7071) + (-0.7071)(3.35e-17)(-0.7071)],
+   [(-0.7071)(2)(-0.7071) + ( 0.7071)(3.35e-17)(0.7071),   (-0.7071)(2)(-0.7071) + ( 0.7071)(3.35e-17)(-0.7071)]]
+  ≈ [[1.0, 1.0],
+     [1.0, 1.0]]                                    ==  J   ✓ (the tiny σ_2 term contributes ~1e-17, negligible)
+```
+
+### Step 2 — threshold the singular values, build Σ⁺
+
+```
+τ = max(atol, rtol · σ_max) = max(0, 4.44e-16 · 2.0) = 8.88e-16
+
+σ_1 = 2.0            > τ  ->  keep it:  σ_1⁺ = 1/2.0 = 0.5
+σ_2 = 3.3547e-17      ≤ τ  ->  discard:  σ_2⁺ = 0        (do NOT compute 1/3.35e-17 — that's the whole point)
+
+Σ⁺ = diag(0.5, 0.0)
+```
+
+### Step 3 — the three-stage multiplication that produces `Δx`
+
+This is `Δx = V · Σ⁺ · Uᵀ · rhs`, done **left to right, one matrix at a
+time** — never forming a combined "pseudo-inverse matrix" first:
+
+**3a. `Uᵀ · rhs`** (rotate the right-hand side into the U-basis):
+```
+Uᵀ @ [4, 4] = [(-0.7071)(4) + (-0.7071)(4),   (-0.7071)(4) + (0.7071)(4)]
+            = [-5.6568542495,                  4.4408920985e-16]
+```
+Notice the second entry came out `≈ 0` (`4.44e-16`, pure floating-point
+noise) — that's *rhs* telling you it has essentially no component at all
+along the undetermined "difference" direction, which makes sense: both
+entries of `rhs` are identical (`4, 4`), so `rhs` points *purely* along the
+"sum" direction to begin with.
+
+**3b. multiply elementwise by `Σ⁺`** (scale each direction by its inverse
+strength — zero for the discarded one):
+```
+Σ⁺ · [-5.6568542495, 4.44e-16] = [0.5 × -5.6568542495,   0.0 × 4.44e-16]
+                                = [-2.8284271247,         0.0]
+```
+
+**3c. `V · (that result)`** (rotate back from the singular-value basis into
+the original `x`-space; recall `V = Vᵀᵀ`, i.e. columns of `V` are the *rows*
+of `Vᵀ` above):
+```
+V @ [-2.8284271247, 0.0] = [(-0.7071)(-2.8284271247) + (0.7071)(0.0),
+                            (-0.7071)(-2.8284271247) + (-0.7071)(0.0)]
+                         = [2.0000000000, 2.0000000000]
+```
+
+**Final answer: `Δx = [2.0, 2.0]`** — matching this repo's actual
+`solve_svd_pinv(J, rhs)` output exactly:
+```
+dx = [2. 2.]
+  residual_norm:               1.26e-15   <- J@dx - rhs, essentially zero: the "sum" equation is fully satisfied
+  condition_number:            5.96e+16   <- RAW: sigma_max / sigma_min (huge — J is nearly exactly singular)
+  effective_condition_number:  1.0        <- EFFECTIVE: sigma_max / (smallest RETAINED sigma) = 2.0/2.0
+```
+Notice the last two lines: the **raw** condition number screams "this
+matrix is a disaster" (`5.96e16`), while the **effective** one — computed
+only over the direction actually used — is a perfectly healthy `1.0`. SVD
+doesn't just detect the danger the way the direct solver's guard does
+(§4-5 of [DIRECT_SOLVE.md](DIRECT_SOLVE.md)) — step 3b above *physically
+zeroed out* the dangerous direction before it could ever reach the answer,
+then reports how healthy what's left actually is.
+
+*(Reproduce yourself: `python -c "import numpy as np; J=np.array([[1.,1.],[1.,1.]]); U,s,Vh=np.linalg.svd(J); print('U=',U); print('s=',s); print('Vh=',Vh)"` to see the raw decomposition, or `python -c "from src.solvers.svd_pinv import solve_svd_pinv; import numpy as np; print(solve_svd_pinv(np.array([[1.,1.],[1.,1.]]), np.array([4.,4.])))"` for the full solver.)*
 
 ## 5. What `solve_svd_pinv()` actually does ([svd_pinv.py:39-192](../src/solvers/svd_pinv.py#L39-L192))
 

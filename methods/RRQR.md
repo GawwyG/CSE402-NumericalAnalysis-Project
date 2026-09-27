@@ -100,7 +100,124 @@ LAPACK's battle-tested `GELSY` routine
 this pivoted-QR-plus-elimination procedure internally and returns the
 minimum-norm answer directly.
 
-## 5. What `solve_rrqr()` actually does ([rrqr.py:51-259](../src/solvers/rrqr.py#L51-L259))
+## 5. A worked example — every matrix, every multiplication
+
+```
+J = [[1, 1],
+     [1, 1]],   rhs = [4, 4]
+```
+
+Same singular matrix used in [SVD_PSEUDOINVERSE.md](SVD_PSEUDOINVERSE.md#4-a-worked-tiny-example-every-matrix-every-multiplication),
+so you can compare methods directly.
+
+### Step 1 — the pivoted QR factorization (real numbers, `scipy.linalg.qr(..., pivoting=True)`)
+
+```
+Q   = [[-0.7071067812, -0.7071067812],
+       [-0.7071067812,  0.7071067812]]
+
+R   = [[-1.4142135624, -1.4142135624],
+       [ 0.0,           -4.744e-17  ]]        <- upper-triangular; bottom-right ~0 IS the floating direction
+
+piv = [0, 1]     <- both columns of J are identical here, so pivoting had nothing to prefer; order unchanged
+```
+
+**Verify it's a real factorization** — `Q @ R` must reconstruct
+`J[:, piv]` (which is just `J` itself here, since `piv` didn't reorder
+anything):
+```
+Q @ R = [[(-0.7071)(-1.4142)+(-0.7071)(0),   (-0.7071)(-1.4142)+(-0.7071)(-4.7e-17)],
+         [(-0.7071)(-1.4142)+(0.7071)(0),    (-0.7071)(-1.4142)+(0.7071)(-4.7e-17)]]
+       ≈ [[1.0, 1.0],
+          [1.0, 1.0]]                                                          ==  J   ✓
+```
+
+### Step 2 — why you CANNOT just back-substitute on this `R`
+
+If you tried ordinary back-substitution (§2 of this file) on `R·Δx = Qᵀ·rhs`
+right now, the last row reads `-4.744e-17 · Δx_2 = (Qᵀrhs)[1]` — dividing
+by `-4.744e-17` is exactly the same "tiny divided by tiny" danger as
+[DIRECT_SOLVE.md](DIRECT_SOLVE.md#5b-the-ill_conditioned-case--every-matrix-every-multiplication)'s
+LU walkthrough. This is precisely why GELSY does one more step before
+solving anything.
+
+### Step 3 — the extra rotation that finishes the "complete orthogonal factorization"
+
+`R`'s first row, `[r₁₁, r₁₂] = [-1.4142, -1.4142]`, is really just a single
+2-D vector pointing at a 45°-ish angle. Since the second row is already
+~0, **the entire rank-1 information in `R` lives in that one row's
+*direction*.** Find the angle that vector points at, and rotate the
+column-space by exactly that angle so the vector lands flat along one
+axis:
+
+```
+θ = atan2(r₁₂, r₁₁) = atan2(-1.4142, -1.4142) = -135°
+
+G (rotation matrix by θ) = [[cos θ,  sin θ],       = [[-0.7071, -0.7071],
+                             [-sin θ, cos θ]]           [ 0.7071, -0.7071]]
+
+T = R @ Gᵀ = [[2.0000000000,  -1.49e-16],
+              [3.35e-17,       3.35e-17]]     ≈  [[2, 0], [0, 0]]     <- now truly diagonal
+```
+Sanity check on `T[0,0] = 2`: rotating a 2-D vector never changes its
+*length*, only its direction, so the surviving entry must equal
+`√(r₁₁² + r₁₂²) = √(1.4142² + 1.4142²) = √4 = 2` — exactly what came out.
+This `T` is `R`, but with its one real "strength" cleanly isolated onto a
+single diagonal entry — **structurally identical to what SVD's `Σ` already
+was**, just reached by an extra rotation instead of directly.
+
+### Step 4 — solve using `T` exactly the way SVD used `Σ`
+
+Substitute `R = T·G` back into `J[:,piv] = Q·R`, giving `J = Q·T·G` (since
+`piv` is trivial here). Solving `J·Δx = rhs` becomes:
+```
+Q·T·G·Δx = rhs
+    T·(G·Δx) = Qᵀ·rhs                  (multiply both sides by Qᵀ; Qᵀ·Q = I)
+```
+Let `z = G·Δx` (a rotated copy of the answer). Compute the right-hand side:
+```
+Qᵀ · rhs = [(-0.7071)(4)+(-0.7071)(4),  (-0.7071)(4)+(0.7071)(4)]
+         = [-5.6568542495,  0.0]              <- IDENTICAL to SVD's Uᵀ·rhs (Q = U for this matrix)
+```
+Now `T·z = [-5.6568542495, 0.0]` is diagonal — solve it exactly the way
+SVD solved its diagonal system, **truncating the same near-zero entry**:
+```
+T⁺ = diag(1/2.0, 0)          (second entry discarded — GELSY's own rank decision, rank=1)
+z  = T⁺ · [-5.6568542495, 0.0] = [-2.8284271247, 0.0]
+```
+Finally, undo the rotation (`Δx = Gᵀ·z`, since `G` is orthogonal so
+`Gᵀ = G⁻¹`):
+```
+Δx = Gᵀ · [-2.8284271247, 0.0]
+   = [(-0.7071)(-2.8284271247) + (0.7071)(0.0),
+      (-0.7071)(-2.8284271247) + (-0.7071)(0.0)]
+   = [2.0, 2.0]
+```
+
+**Final answer: `Δx = [2.0, 2.0]` — exactly SVD's answer.** Calling this
+repo's actual `solve_rrqr(J, rhs)` confirms it (and reports the same rank
+decision along the way):
+
+```
+dx = [2. 2.]
+  r_diagonal:                  [1.414, 4.74e-17]
+  numerical_rank:               1
+  lapack_rank:                  1     <- GELSY's own internal rank agrees with the diagnostic rank above
+  condition_number:             1.0
+  residual_norm:                1.26e-15
+```
+
+The headline result of this whole walkthrough: RRQR never computed a
+single singular value, yet **step 3's rotation manufactured its own
+diagonal `Σ`-like matrix out of thin air**, and step 4 then did the exact
+same "threshold, invert, zero out" dance SVD did. This is the concrete
+proof of §1's claim that RRQR "reaches almost the same *kind* of answer as
+SVD" — here, it's not just similar, it's identical to floating-point
+precision, via a genuinely different sequence of matrix operations.
+
+*(Reproduce yourself: `python -c "import scipy.linalg as sla, numpy as np; J=np.array([[1.,1.],[1.,1.]]); Q,R,piv=sla.qr(J,mode='economic',pivoting=True); print('Q=',Q); print('R=',R); print('piv=',piv)"` for the raw factorization, or `python -c "from src.solvers.rrqr import solve_rrqr; import numpy as np; print(solve_rrqr(np.array([[1.,1.],[1.,1.]]), np.array([4.,4.])))"` for the full solver.)*
+
+## 6. What `solve_rrqr()` actually does ([rrqr.py:51-259](../src/solvers/rrqr.py#L51-L259))
 
 Two separate LAPACK calls, driven by the **same** threshold, doing two
 different jobs:
@@ -140,7 +257,7 @@ A special case at [rrqr.py:171-194](../src/solvers/rrqr.py#L171-L194): if `J` is
 all-zero matrix, `r_max = 0`, and the function short-circuits to
 `Δx = 0` directly (dividing to get `rcond` would be undefined otherwise).
 
-## 6. Strengths and weaknesses (as found by this project)
+## 7. Strengths and weaknesses (as found by this project)
 
 - **Strength**: reaches essentially the same *kind* of principled
   minimum-norm answer as SVD, via a route that's sometimes computationally

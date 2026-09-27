@@ -110,14 +110,17 @@ a negligible one on a large-scale problem. Scaling by `σ_max(J)²` keeps
 `α`'s *effective strength* comparable across all of them — the docstring
 calls this the "scale-aware convention."
 
-## 5. A worked tiny example (same matrix as the SVD walkthrough)
+## 5. A worked tiny example — every matrix, every multiplication
 
 ```
 J = [[1, 1],
      [1, 1]],   rhs = [4, 4]
 ```
 (`σ_max = 2`, from [SVD_PSEUDOINVERSE.md](SVD_PSEUDOINVERSE.md)'s worked
-example). Pick `α = 0.01`, so `λ = 0.01 × 2² = 0.04`, `√λ ≈ 0.2`.
+example). Pick `α = 0.01`, so `λ = α · σ_max² = 0.01 × 2² = 0.04`,
+`√λ = √0.04 = 0.2`.
+
+### Step 1 — build the augmented matrix (literally stack the blocks)
 
 ```
 J_aug = [[1,    1  ],       rhs_aug = [4]
@@ -125,19 +128,98 @@ J_aug = [[1,    1  ],       rhs_aug = [4]
          [0.2,  0  ],                 [0]
          [0,    0.2]]                 [0]
 ```
+The top 2 rows are just `J` itself; the bottom 2 rows are `√λ · I` — a
+`0.2` on the diagonal, literally appended as two extra equations, each
+saying (in effect) "and also, `Δx_i` should be small."
 
-Solving this ordinary (well-posed!) 4-equation, 2-unknown least-squares
-problem pulls the answer slightly *below* the undamped `[2, 2]` SVD gave —
-specifically toward smaller magnitude in *every* direction (not just the
-undetermined one), by an amount controlled by how large `λ` is relative to
-`σ_max²`. As `α → 0`, this answer converges back to the exact SVD
-minimum-norm solution; as `α` grows, the answer shrinks further but
-increasingly stops solving the original equation faithfully. That
-trade-off — some damping helps stability, too much damping stops solving
-the real problem — is exactly why this project treats `α` as something to
-be *swept and justified* per network (see
+### Step 2 — form the normal equations *of the augmented system* (this is safe — see why below)
+
+```
+J_augᵀ · J_aug =
+  [[1·1+1·1+0.2·0.2+0·0,   1·1+1·1+0.2·0+0·0.2],     =  [[2.04, 2.00],
+   [1·1+1·1+0.2·0+0·0.2,   1·1+1·1+0·0+0.2·0.2]]         [2.00, 2.04]]
+
+J_augᵀ · rhs_aug =
+  [1·4+1·4+0.2·0+0·0,   1·4+1·4+0·0+0.2·0]  =  [8.0, 8.0]
+```
+
+**Why this is safe here, even though §2 forbids forming `JᵀJ`:** the
+danger in §2 was squaring `J`'s *own* condition number. But
+`J_augᵀ·J_aug` is only a `2×2` matrix built from the *augmented* system,
+which was deliberately constructed to have **no near-zero singular value
+in the first place** (the `√λ·I` block guarantees every direction has at
+least some weight). Forming normal equations of an already-well-posed
+small system is ordinary, unremarkable linear algebra — it's only
+dangerous when the matrix being squared was ill-conditioned to begin with.
+(This worked example forms them explicitly only to show the arithmetic in
+full; the actual code in `tikhonov.py` still avoids it, using `lstsq`
+instead, precisely so this reasoning never has to be re-verified for every
+different `J` it's given.)
+
+### Step 3 — solve the resulting well-posed 2×2 system directly (ordinary elimination, §2 of DIRECT_SOLVE.md)
+
+```
+[[2.04, 2.00],     [Δx_1]   [8.0]
+ [2.00, 2.04]]  ·  [Δx_2] = [8.0]
+```
+Eliminate: multiplier `= 2.00/2.04 = 0.9803921569`, do `row2 − multiplier·row1`:
+```
+row2_new = [2.00 - 0.9803921569×2.04,   2.04 - 0.9803921569×2.00]  =  [0,  0.0792156863]
+rhs2_new =  8.0  - 0.9803921569×8.0                                 =  0.1568627451
+```
+Back-substitute:
+```
+Δx_2 = rhs2_new / row2_new[1] = 0.1568627451 / 0.0792156863 = 1.9801980198
+
+row 1:  2.04·Δx_1 + 2.00·Δx_2 = 8.0
+        Δx_1 = (8.0 - 2.00×1.9801980198) / 2.04 = 1.9801980198
+```
+`Δx_1 = Δx_2 = 1.9801980198...` — both come out identical, by the matrix's
+symmetry (unsurprising: `J`'s two columns were identical to begin with).
+
+### Step 4 — verify
+
+```
+J_aug @ [1.9801980198, 1.9801980198] =
+  [1.9801980198+1.9801980198,  1.9801980198+1.9801980198,  0.2×1.9801980198,  0.2×1.9801980198]
+  = [3.9603960396,  3.9603960396,  0.3960396040,  0.3960396040]
+```
+Compare to `rhs_aug = [4, 4, 0, 0]` — close but not exact (that's the whole
+point: this is a *least-squares* solve, minimizing total squared error
+across all 4 equations at once, not solving any of them exactly). On the
+**original** problem specifically: `J @ [1.9802, 1.9802] = [3.9604, 3.9604]`
+vs. `rhs = [4, 4]` — off by `0.0396` in each entry, giving
+`residual_norm = ‖[3.9604,3.9604]-[4,4]‖ = √(0.0396²×2) ≈ 0.056`, matching
+the code's own reported diagnostic below exactly.
+
+**Verified against this repo's actual code** —
+`solve_tikhonov(J, rhs, alpha=0.01)` returns:
+
+```
+dx = [1.98019802, 1.98019802]        <- slightly BELOW SVD's [2, 2], in BOTH entries, not just the "free" one
+  alpha:                    0.01
+  lambda_reg:               0.04                 <- = alpha * sigma_max(J)^2 = 0.01 * 2^2
+  sigma_max_J:              2.0
+  residual_norm:            0.056                <- ||J@dx - rhs|| on the ORIGINAL problem: no longer exactly zero!
+  augmented_residual_norm:  0.563                <- what was actually minimized (original residual + penalty term)
+  augmented_rank:           2                    <- J_aug is FULL rank (well-posed), unlike J itself (rank 1)
+  step_norm:                2.800                <- vs SVD's step_norm of 2.828 -- Tikhonov's answer is slightly smaller
+```
+
+Notice `residual_norm` is no longer `~1e-15` the way SVD's and RRQR's were
+— it's `0.056`, a real, nonzero amount. That's the price of damping: by
+refusing to leave *any* direction totally unconstrained, Tikhonov also
+nudges the well-determined "sum" direction very slightly away from
+perfectly satisfying `4 = Δx_1 + Δx_2` (`1.980+1.980 = 3.960`, not exactly
+`4`). With `α = 0.01` that price is tiny; as `α → 0` this answer converges
+back to the exact `[2, 2]` SVD gave, and as `α` grows the price keeps
+rising. That trade-off — some damping helps stability, too much damping
+stops solving the real problem — is exactly why this project treats `α` as
+something to be *swept and justified* per network (see
 [experiments/exp_d_ieee13_tikhonov_alpha_sweep.py](../experiments/exp_d_ieee13_tikhonov_alpha_sweep.py)),
 never picked arbitrarily.
+
+*(Reproduce yourself: `python -c "from src.solvers.tikhonov import solve_tikhonov; import numpy as np; print(solve_tikhonov(np.array([[1.,1.],[1.,1.]]), np.array([4.,4.]), alpha=0.01))"`.)*
 
 ## 6. What `solve_tikhonov()` actually does ([tikhonov.py:56-237](../src/solvers/tikhonov.py#L56-L237))
 
